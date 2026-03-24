@@ -61,4 +61,20 @@ public class BankAccountTest {
             //this is what we want
         }
     }
+
+    @Test
+    public void testTransactionHistory() {
+        BankAccount testAccount = new BankAccount();
+        testAccount.deposit(50);
+        testAccount.withdraw(25);
+        assertEquals(2, testAccount.getTransactionHistory().size());
+        assertEquals(50, testAccount.getTransactionHistory().get(0).getAmount(), 0.01);
+        assertEquals(25, testAccount.getTransactionHistory().get(1).getAmount(), 0.01);
+        assertEquals("Deposit", testAccount.getTransactionHistory().get(0).getType());
+        assertEquals("Withdrawal", testAccount.getTransactionHistory().get(1).getType());
+
+        //we can't test the exact equality of the date, but we can ensure that the day is the same between the two transactions
+        assertEquals(testAccount.getTransactionHistory().get(0).getDate().getDay(), 
+        testAccount.getTransactionHistory().get(1).getDate().getDay());
+    }
 }
