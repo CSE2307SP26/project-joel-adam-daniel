@@ -19,7 +19,11 @@
 9. A bank adminstrator should be able to add an interest payment to an existing account when necessary.
 
 ## What user stories do you intend to complete next iteration?
-
+- 8 and 9
 ## Is there anything that you implemented but doesn't currently work?
 
+N/A
+
 ## What commands are needed to compile and run your code from the command line?
+
+./runApp.sh
