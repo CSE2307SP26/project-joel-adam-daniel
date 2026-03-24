@@ -17,6 +17,20 @@ public class BankAccountTest {
     }
 
     @Test
+    public void testInitialBalance() {
+        BankAccount testAccount = new BankAccount();
+        assertEquals(0, testAccount.getBalance(), 0.01);
+    }
+
+    @Test
+    public void testBalanceAfterDepositAndWithdraw() {
+        BankAccount testAccount = new BankAccount();
+        testAccount.deposit(100);
+        testAccount.withdraw(37.5);
+        assertEquals(62.5, testAccount.getBalance(), 0.01);
+    }
+
+    @Test
     public void testInvalidDeposit() {
         BankAccount testAccount = new BankAccount();
         try {
