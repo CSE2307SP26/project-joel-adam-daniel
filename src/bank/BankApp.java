@@ -5,6 +5,7 @@ import java.util.Scanner;
 
 /**
  * Terminal bank customer app: list accounts, close account, transfer between accounts.
+ * Terminal bank customer app. User story 6: close an existing account.
  */
 public class BankApp {
     public static void main(String[] args) {
@@ -42,6 +43,7 @@ public class BankApp {
                     return;
                 default:
                     System.out.println("Unknown option. Try 1, 2, 3, or 0.");
+                    System.out.println("Unknown option. Try 1, 2, or 0.");
             }
         }
     }

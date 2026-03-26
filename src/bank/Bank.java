@@ -56,6 +56,10 @@ public class Bank {
 
     /**
      * Closes an existing account. The account must exist and have a zero balance.
+     * Closes an existing account. The account must exist and have a zero balance.
+     *
+     * @param accountNumber the account to close
+     * @return a result describing success or the reason for failure
      */
     public CloseAccountResult closeAccount(String accountNumber) {
         if (accountNumber == null || accountNumber.isBlank()) {
