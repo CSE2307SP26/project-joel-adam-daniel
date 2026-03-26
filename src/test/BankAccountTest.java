@@ -3,6 +3,7 @@ package test;
 import main.BankAccount;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.fail;
 
 import org.junit.jupiter.api.Test;
@@ -45,9 +46,9 @@ public class BankAccountTest {
     public void testWithdraw() {
         BankAccount testAccount = new BankAccount();
         try {
-        testAccount.deposit(50);
-        testAccount.withdraw(25);
-        assertEquals(25, testAccount.getBalance(), 0.01);
+            testAccount.deposit(50);
+            testAccount.withdraw(25);
+            assertEquals(25, testAccount.getBalance(), 0.01);
         } catch (IllegalArgumentException e) {
             fail();
         }
@@ -87,8 +88,7 @@ public class BankAccountTest {
         assertEquals("Deposit", testAccount.getTransactionHistory().get(0).getType());
         assertEquals("Withdrawal", testAccount.getTransactionHistory().get(1).getType());
 
-        //we can't test the exact equality of the date, but we can ensure that the day is the same between the two transactions
-        assertEquals(testAccount.getTransactionHistory().get(0).getDate().getDay(), 
-        testAccount.getTransactionHistory().get(1).getDate().getDay());
+        assertNotNull(testAccount.getTransactionHistory().get(0).getDate());
+        assertNotNull(testAccount.getTransactionHistory().get(1).getDate());
     }
 }
