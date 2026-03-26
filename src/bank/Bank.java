@@ -6,7 +6,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
- * In-memory bank: holds accounts and supports closing an account when balance is zero.
+ * In-memory bank: accounts, closing (zero balance), and transfers between accounts.
  */
 public class Bank {
     private final Map<String, Account> accounts = new LinkedHashMap<>();
@@ -24,6 +24,38 @@ public class Bank {
     }
 
     /**
+     * Moves money from one account to another. Both must exist, be different, and the source must have enough funds.
+     */
+    public TransferResult transfer(String fromNumber, String toNumber, BigDecimal amount) {
+        if (fromNumber == null || fromNumber.isBlank() || toNumber == null || toNumber.isBlank()) {
+            return TransferResult.failure("From and to account numbers are required.");
+        }
+        if (fromNumber.equals(toNumber)) {
+            return TransferResult.failure("Cannot transfer to the same account.");
+        }
+        if (amount == null || amount.compareTo(BigDecimal.ZERO) <= 0) {
+            return TransferResult.failure("Transfer amount must be positive.");
+        }
+        Account from = accounts.get(fromNumber);
+        Account to = accounts.get(toNumber);
+        if (from == null) {
+            return TransferResult.failure("Source account not found: " + fromNumber);
+        }
+        if (to == null) {
+            return TransferResult.failure("Destination account not found: " + toNumber);
+        }
+        if (from.getBalance().compareTo(amount) < 0) {
+            return TransferResult.failure(
+                    "Insufficient funds. Balance: " + from.getBalance() + ", requested: " + amount);
+        }
+        from.withdraw(amount);
+        to.deposit(amount);
+        return TransferResult.success(
+                "Transferred " + amount + " from " + fromNumber + " to " + toNumber + ".");
+    }
+
+    /**
+     * Closes an existing account. The account must exist and have a zero balance.
      * Closes an existing account. The account must exist and have a zero balance.
      *
      * @param accountNumber the account to close
@@ -43,6 +75,32 @@ public class Bank {
         }
         accounts.remove(accountNumber);
         return CloseAccountResult.success();
+    }
+
+    public static final class TransferResult {
+        private final boolean success;
+        private final String message;
+
+        private TransferResult(boolean success, String message) {
+            this.success = success;
+            this.message = message;
+        }
+
+        public static TransferResult success(String message) {
+            return new TransferResult(true, message);
+        }
+
+        public static TransferResult failure(String message) {
+            return new TransferResult(false, message);
+        }
+
+        public boolean isSuccess() {
+            return success;
+        }
+
+        public String getMessage() {
+            return message;
+        }
     }
 
     public static final class CloseAccountResult {

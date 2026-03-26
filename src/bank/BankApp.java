@@ -4,6 +4,7 @@ import java.math.BigDecimal;
 import java.util.Scanner;
 
 /**
+ * Terminal bank customer app: list accounts, close account, transfer between accounts.
  * Terminal bank customer app. User story 6: close an existing account.
  */
 public class BankApp {
@@ -23,6 +24,7 @@ public class BankApp {
             System.out.println();
             System.out.println("1) List accounts");
             System.out.println("2) Close an account");
+            System.out.println("3) Transfer money");
             System.out.println("0) Quit");
             System.out.print("Choice: ");
             String line = in.nextLine().trim();
@@ -33,10 +35,14 @@ public class BankApp {
                 case "2":
                     closeAccountInteractive(bank, in);
                     break;
+                case "3":
+                    transferInteractive(bank, in);
+                    break;
                 case "0":
                     System.out.println("Goodbye.");
                     return;
                 default:
+                    System.out.println("Unknown option. Try 1, 2, 3, or 0.");
                     System.out.println("Unknown option. Try 1, 2, or 0.");
             }
         }
@@ -72,6 +78,28 @@ public class BankApp {
             return;
         }
         Bank.CloseAccountResult result = bank.closeAccount(id);
+        System.out.println(result.getMessage());
+    }
+
+    private static void transferInteractive(Bank bank, Scanner in) {
+        if (bank.getAllAccounts().size() < 2) {
+            System.out.println("Need at least two accounts to transfer.");
+            return;
+        }
+        System.out.print("From account number: ");
+        String from = in.nextLine().trim();
+        System.out.print("To account number: ");
+        String to = in.nextLine().trim();
+        System.out.print("Amount: ");
+        String amountLine = in.nextLine().trim();
+        BigDecimal amount;
+        try {
+            amount = new BigDecimal(amountLine);
+        } catch (NumberFormatException ex) {
+            System.out.println("Invalid amount.");
+            return;
+        }
+        Bank.TransferResult result = bank.transfer(from, to, amount);
         System.out.println(result.getMessage());
     }
 
