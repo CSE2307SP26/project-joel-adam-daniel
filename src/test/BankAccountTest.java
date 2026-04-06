@@ -12,20 +12,20 @@ public class BankAccountTest {
 
     @Test
     public void testDeposit() {
-        BankAccount testAccount = new BankAccount();
+        BankAccount testAccount = new BankAccount(1234);
         testAccount.deposit(50);
         assertEquals(50, testAccount.getBalance(), 0.01);
     }
 
     @Test
     public void testInitialBalance() {
-        BankAccount testAccount = new BankAccount();
+        BankAccount testAccount = new BankAccount(1234);
         assertEquals(0, testAccount.getBalance(), 0.01);
     }
 
     @Test
     public void testBalanceAfterDepositAndWithdraw() {
-        BankAccount testAccount = new BankAccount();
+        BankAccount testAccount = new BankAccount(1234);
         testAccount.deposit(100);
         testAccount.withdraw(37.5);
         assertEquals(62.5, testAccount.getBalance(), 0.01);
@@ -33,7 +33,7 @@ public class BankAccountTest {
 
     @Test
     public void testInvalidDeposit() {
-        BankAccount testAccount = new BankAccount();
+        BankAccount testAccount = new BankAccount(1234);
         try {
             testAccount.deposit(-50);
             fail();
@@ -44,7 +44,7 @@ public class BankAccountTest {
 
     @Test
     public void testWithdraw() {
-        BankAccount testAccount = new BankAccount();
+        BankAccount testAccount = new BankAccount(1234);
         try {
             testAccount.deposit(50);
             testAccount.withdraw(25);
@@ -56,7 +56,7 @@ public class BankAccountTest {
 
     @Test
     public void testInvalidWithdraw() {
-        BankAccount testAccount = new BankAccount();
+        BankAccount testAccount = new BankAccount(1234);
         try {
             testAccount.withdraw(-50);
             fail();
@@ -67,7 +67,7 @@ public class BankAccountTest {
 
     @Test 
     public void testWithdrawMoreThanBalance() {
-        BankAccount testAccount = new BankAccount();
+        BankAccount testAccount = new BankAccount(1234);
         try {
             testAccount.deposit(50);
             testAccount.withdraw(60);
@@ -79,7 +79,7 @@ public class BankAccountTest {
 
     @Test
     public void testTransactionHistory() {
-        BankAccount testAccount = new BankAccount();
+        BankAccount testAccount = new BankAccount(1234);
         testAccount.deposit(50);
         testAccount.withdraw(25);
         assertEquals(2, testAccount.getTransactionHistory().size());

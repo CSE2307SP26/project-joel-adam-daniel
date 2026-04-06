@@ -6,11 +6,24 @@ public class BankAccount {
 
     private double balance;
     private List<Transaction> transactionHistory;
+    private PinLogin pinLogin;
 
-    public BankAccount() {
+    public BankAccount(int pin) {
         this.transactionHistory = new ArrayList<>();
         this.balance = 0;
-        
+        this.pinLogin = new PinLogin(pin);
+    }
+
+    public boolean authenticate(int pin) {
+        return pinLogin.authenticate(pin);
+    }
+
+    public boolean isLocked() {
+        return pinLogin.isLocked();
+    }
+
+    public int getRemainingAttempts() {
+        return pinLogin.getRemainingAttempts();
     }
 
     public void deposit(double amount) {

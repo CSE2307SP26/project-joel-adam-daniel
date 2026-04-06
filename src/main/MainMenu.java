@@ -16,14 +16,13 @@ public class MainMenu {
     public MainMenu() {
         this.accounts = new LinkedHashMap<>();
         this.activeAccountId = "A001";
-        this.accounts.put(activeAccountId, new BankAccount());
         this.keyboardInput = new Scanner(System.in);
     }
 
     public void displayOptions() {
         System.out.println("Welcome to the 237 Bank App!");
         System.out.println("Active account: " + activeAccountId);
-        
+
         System.out.println("1. Make a deposit");
         System.out.println("2. Make a withdrawal");
         System.out.println("3. Check account balance");
@@ -33,7 +32,6 @@ public class MainMenu {
         System.out.println("7. Close an account");
         System.out.println("8. Transfer money between accounts");
         System.out.println("9. Exit the app");
-
     }
 
     public int getUserSelection(int max) {
@@ -83,11 +81,11 @@ public class MainMenu {
     public void viewTransactionHistory() {
         getActiveAccount().printTransactionHistory();
     }
-    
+
     public void performWithdrawal() {
         double withdrawalAmount = -1;
 
-        while(withdrawalAmount < 0) { 
+        while(withdrawalAmount < 0) {
             System.out.print("How much would you like to withdraw: ");
             withdrawalAmount = keyboardInput.nextInt();
         }
@@ -98,6 +96,7 @@ public class MainMenu {
             System.out.println("Withdrawal failed. Please check amount and balance.");
         }
     }
+
     public void performDeposit() {
         double depositAmount = -1;
         while(depositAmount < 0) {
@@ -109,6 +108,33 @@ public class MainMenu {
 
     private BankAccount getActiveAccount() {
         return accounts.get(activeAccountId);
+    }
+
+    private int promptSetPin(String accountId) {
+        int pin = -1;
+        while (!PinLogin.isValidPin(pin)) {
+            System.out.print("Set a 4-digit PIN for account " + accountId + ": ");
+            pin = keyboardInput.nextInt();
+            if (!PinLogin.isValidPin(pin)) {
+                System.out.println("PIN must be exactly 4 digits (1000-9999). Try again.");
+            }
+        }
+        return pin;
+    }
+
+    private boolean promptPinAuth(String accountId) {
+        BankAccount account = accounts.get(accountId);
+        while (!account.isLocked()) {
+            System.out.print("Enter PIN for account " + accountId + " ("
+                    + account.getRemainingAttempts() + " attempts remaining): ");
+            int entered = keyboardInput.nextInt();
+            if (account.authenticate(entered)) {
+                return true;
+            }
+            System.out.println("Incorrect PIN.");
+        }
+        System.out.println("Account " + accountId + " is locked after too many failed attempts.");
+        return false;
     }
 
     private void createAdditionalAccount() {
@@ -123,7 +149,8 @@ public class MainMenu {
             System.out.println("An account with that id already exists.");
             return;
         }
-        accounts.put(newId, new BankAccount());
+        int pin = promptSetPin(newId);
+        accounts.put(newId, new BankAccount(pin));
         System.out.println("Created account " + newId + ".");
     }
 
@@ -133,6 +160,10 @@ public class MainMenu {
         String id = keyboardInput.nextLine().trim();
         if (!accounts.containsKey(id)) {
             System.out.println("Account not found.");
+            return;
+        }
+        if (!promptPinAuth(id)) {
+            System.out.println("Could not authenticate. Switch cancelled.");
             return;
         }
         activeAccountId = id;
@@ -202,6 +233,9 @@ public class MainMenu {
     }
 
     public void run() {
+        int pin = promptSetPin(activeAccountId);
+        accounts.put(activeAccountId, new BankAccount(pin));
+
         int selection = -1;
         while(selection != EXIT_SELECTION) {
             displayOptions();
