@@ -4,13 +4,16 @@ import java.util.*;
 
 public class BankAccount {
 
+    private static final double DEFAULT_MINIMUM_BALANCE = 25.00;
+
     private double balance;
     private List<Transaction> transactionHistory;
+    private double minimumBalanceThreshold;
 
     public BankAccount() {
         this.transactionHistory = new ArrayList<>();
         this.balance = 0;
-        
+        this.minimumBalanceThreshold = DEFAULT_MINIMUM_BALANCE;
     }
 
     public void deposit(double amount) {
@@ -27,9 +30,24 @@ public class BankAccount {
         if(amount > 0 && amount <= this.balance) {
             this.balance -= amount;
             this.transactionHistory.add(new Transaction(amount, "Withdrawal", new Date()));
+            if (this.balance < this.minimumBalanceThreshold) {
+                System.out.printf("Warning: Your balance ($%.2f) is below the minimum balance of $%.2f.%n",
+                        this.balance, this.minimumBalanceThreshold);
+            }
         } else {
             throw new IllegalArgumentException();
         }
+    }
+
+    public void setMinimumBalanceThreshold(double threshold) {
+        if (threshold < 0) {
+            throw new IllegalArgumentException("Minimum balance threshold cannot be negative.");
+        }
+        this.minimumBalanceThreshold = threshold;
+    }
+
+    public double getMinimumBalanceThreshold() {
+        return this.minimumBalanceThreshold;
     }
 
     public void printTransactionHistory() {
