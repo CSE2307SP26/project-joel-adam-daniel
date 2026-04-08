@@ -33,6 +33,19 @@ public class Account {
         return Collections.unmodifiableList(transactionHistory);
     }
 
+    // Subset view for the history menu filter
+    public List<Transaction> getTransactionHistoryByType(Transaction.Type type) {
+        List<Transaction> out = new ArrayList<>();
+
+        for (Transaction t : transactionHistory) {
+            if (t.getType() == type) {
+                out.add(t);
+            }
+        }
+
+        return Collections.unmodifiableList(out);
+    }
+
     public void deposit(double amount) {
         if (amount <= 0) {
             throw new IllegalArgumentException("Deposit amount must be positive");

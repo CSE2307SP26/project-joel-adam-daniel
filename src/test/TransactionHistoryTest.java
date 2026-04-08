@@ -20,4 +20,15 @@ class TransactionHistoryTest {
         assertEquals(Transaction.Type.WITHDRAW, a.getTransactionHistory().get(2).getType());
         assertEquals(3, a.getBalance(), 0.001);
     }
+
+    @Test
+    void filterByTypeReturnsOnlyMatchingEntries() {
+        Account a = new Account("F1", 0);
+        a.deposit(10);
+        a.withdraw(3);
+        assertEquals(1, a.getTransactionHistoryByType(Transaction.Type.OPEN).size());
+        assertEquals(1, a.getTransactionHistoryByType(Transaction.Type.DEPOSIT).size());
+        assertEquals(1, a.getTransactionHistoryByType(Transaction.Type.WITHDRAW).size());
+        assertEquals(0, a.getTransactionHistoryByType(Transaction.Type.TRANSFER_IN).size());
+    }
 }
