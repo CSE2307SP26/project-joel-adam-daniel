@@ -1,14 +1,14 @@
 package bank;
 
-import java.math.BigDecimal;
 import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
-/**
- * In-memory bank: accounts, closing (zero balance), and transfers between accounts.
- */
 public class Bank {
+
+    // doubles don't compare cleanly to 0; use this for "balance is basically zero" checks
+    private static final double EPS = 1e-9;
+
     private final Map<String, Account> accounts = new LinkedHashMap<>();
 
     public void addAccount(Account account) {
@@ -19,58 +19,113 @@ public class Bank {
         return accounts.get(accountNumber);
     }
 
+    public int getAccountCount() {
+        return accounts.size();
+    }
+
     public Collection<Account> getAllAccounts() {
         return accounts.values();
     }
 
-    /**
-     * Moves money from one account to another. Both must exist, be different, and the source must have enough funds.
-     */
-    public TransferResult transfer(String fromNumber, String toNumber, BigDecimal amount) {
+    public CreateAccountResult tryCreateAccount(String accountId, double initialBalance) {
+        if (accountId == null || accountId.isBlank()) {
+            return CreateAccountResult.failure("Account id cannot be empty.");
+        }
+        if (accounts.containsKey(accountId)) {
+            return CreateAccountResult.failure("An account with that id already exists.");
+        }
+        if (initialBalance < 0 || Double.isNaN(initialBalance)) {
+            return CreateAccountResult.failure("Initial balance cannot be negative.");
+        }
+
+        addAccount(new Account(accountId, initialBalance));
+        return CreateAccountResult.success("Created account " + accountId + ".");
+    }
+
+    public CloseAccountResult closeCustomerAccount(String accountNumber) {
+        if (accounts.size() <= 1) {
+            return CloseAccountResult.failure("Cannot close the only remaining account.");
+        }
+
+        return closeAccount(accountNumber);
+    }
+
+    public TransferResult transfer(String fromNumber, String toNumber, double amount) {
         if (fromNumber == null || fromNumber.isBlank() || toNumber == null || toNumber.isBlank()) {
             return TransferResult.failure("From and to account numbers are required.");
         }
         if (fromNumber.equals(toNumber)) {
             return TransferResult.failure("Cannot transfer to the same account.");
         }
-        if (amount == null || amount.compareTo(BigDecimal.ZERO) <= 0) {
+        if (amount <= 0 || Double.isNaN(amount)) {
             return TransferResult.failure("Transfer amount must be positive.");
         }
+
         Account from = accounts.get(fromNumber);
         Account to = accounts.get(toNumber);
+
         if (from == null) {
             return TransferResult.failure("Source account not found: " + fromNumber);
         }
         if (to == null) {
             return TransferResult.failure("Destination account not found: " + toNumber);
         }
-        if (from.getBalance().compareTo(amount) < 0) {
+
+        if (from.getBalance() + EPS < amount) {
             return TransferResult.failure(
                     "Insufficient funds. Balance: " + from.getBalance() + ", requested: " + amount);
         }
-        from.withdraw(amount);
-        to.deposit(amount);
+
+        from.transferOut(amount);
+        to.transferIn(amount);
+
         return TransferResult.success(
                 "Transferred " + amount + " from " + fromNumber + " to " + toNumber + ".");
     }
 
-    /**
-     * Closes an existing account. The account must exist and have a zero balance.
-     */
     public CloseAccountResult closeAccount(String accountNumber) {
         if (accountNumber == null || accountNumber.isBlank()) {
             return CloseAccountResult.failure("No account selected.");
         }
+
         Account acc = accounts.get(accountNumber);
         if (acc == null) {
             return CloseAccountResult.failure("Account not found: " + accountNumber);
         }
-        if (acc.getBalance().compareTo(BigDecimal.ZERO) != 0) {
+
+        if (Math.abs(acc.getBalance()) > EPS) {
             return CloseAccountResult.failure(
                     "Balance must be zero to close this account. Current balance: " + acc.getBalance());
         }
+
         accounts.remove(accountNumber);
         return CloseAccountResult.success();
+    }
+
+    public static final class CreateAccountResult {
+        private final boolean success;
+        private final String message;
+
+        private CreateAccountResult(boolean success, String message) {
+            this.success = success;
+            this.message = message;
+        }
+
+        public static CreateAccountResult success(String message) {
+            return new CreateAccountResult(true, message);
+        }
+
+        public static CreateAccountResult failure(String message) {
+            return new CreateAccountResult(false, message);
+        }
+
+        public boolean isSuccess() {
+            return success;
+        }
+
+        public String getMessage() {
+            return message;
+        }
     }
 
     public static final class TransferResult {

@@ -1,10 +1,9 @@
 #!/bin/bash
 set -e
 
-cd "$(dirname "$0")" #cd into the directory of the script (credit: Dave Dopson from Stack Overflow)
+cd "$(dirname "$0")"
+rm -rf bin
 mkdir -p bin
 
-javac -d bin -sourcepath src src/main/*.java #compile
-java -cp bin main.MainMenu #run the main menu
-
-
+javac -d bin -sourcepath src src/bank/*.java src/main/*.java
+java -cp bin main.MainMenu
