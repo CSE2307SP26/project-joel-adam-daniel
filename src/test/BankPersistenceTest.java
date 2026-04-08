@@ -1,6 +1,7 @@
 package test;
 
 import bank.Account;
+import bank.AccountType;
 import bank.Bank;
 import bank.BankPersistence;
 import bank.Transaction;
@@ -11,6 +12,7 @@ import org.junit.jupiter.api.io.TempDir;
 import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class BankPersistenceTest {
@@ -47,5 +49,29 @@ class BankPersistenceTest {
     void tryLoadMissingFileReturnsEmpty(@TempDir Path tempDir) {
         Path missing = tempDir.resolve("nope.txt");
         assertTrue(BankPersistence.tryLoad(missing).isEmpty());
+    }
+
+    @Test
+    void saveAndLoadPreservesSavingsWithdrawalCount(@TempDir Path tempDir) throws Exception {
+        Path file = tempDir.resolve("bank-sav.txt");
+
+        Bank bank = new Bank();
+        bank.addAccount(new Account("CHK", 0, AccountType.CHECKING));
+        bank.addAccount(new Account("SAV", 200, AccountType.SAVINGS));
+        bank.getAccount("SAV").withdraw(5);
+
+        BankPersistence.save(bank, "SAV", file);
+
+        BankPersistence.BankSnapshot loaded = BankPersistence.load(file);
+        Bank b = loaded.getBank();
+        Account sav = b.getAccount("SAV");
+
+        assertEquals(AccountType.SAVINGS, sav.getAccountType());
+        assertEquals(195, sav.getBalance(), 0.01);
+
+        for (int i = 0; i < Account.SAVINGS_MAX_WITHDRAWALS_PER_MONTH - 1; i++) {
+            assertTrue(b.transfer("SAV", "CHK", 1).isSuccess());
+        }
+        assertFalse(b.transfer("SAV", "CHK", 1).isSuccess());
     }
 }
