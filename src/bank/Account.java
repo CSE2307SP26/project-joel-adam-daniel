@@ -21,6 +21,19 @@ public class Account {
         transactionHistory.add(new Transaction(Transaction.Type.OPEN, initialBalance, now, openDetail));
     }
 
+    // Rebuilds from disk; fullHistory must already include OPEN and agree with balance
+    public static Account fromPersisted(
+            String accountNumber, double balance, List<Transaction> fullHistory) {
+        return new Account(accountNumber, balance, new ArrayList<>(fullHistory));
+    }
+
+    // Same in-memory shape as the public constructor, without inserting another OPEN row
+    private Account(String accountNumber, double balance, List<Transaction> persistedHistory) {
+        this.accountNumber = accountNumber;
+        this.balance = balance;
+        this.transactionHistory = persistedHistory;
+    }
+
     public String getAccountNumber() {
         return accountNumber;
     }
