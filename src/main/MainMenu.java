@@ -13,8 +13,8 @@ import java.util.Scanner;
 
 public class MainMenu {
 
-    private static final int EXIT_SELECTION = 9;
-    private static final int MAX_SELECTION = 9;
+    private static final int EXIT_SELECTION = 11;
+    private static final int MAX_SELECTION = 11;
 
     private final Bank bank;
     private String activeAccountId;
@@ -46,7 +46,9 @@ public class MainMenu {
 
     public void displayOptions() {
         System.out.println("Welcome to the 237 Bank App!");
-        System.out.println("Active account: " + activeAccountId);
+        Account active = getActiveAccount();
+        System.out.println(
+                "Active account: " + activeAccountId + (active.isFrozen() ? " [FROZEN]" : ""));
 
         System.out.println("1. Make a deposit");
         System.out.println("2. Make a withdrawal");
@@ -56,7 +58,9 @@ public class MainMenu {
         System.out.println("6. Switch active account");
         System.out.println("7. Close an account");
         System.out.println("8. Transfer money between accounts");
-        System.out.println("9. Exit the app");
+        System.out.println("9. Operator Freeze account");
+        System.out.println("10. Operator Unfreeze account");
+        System.out.println("11. Exit the app");
     }
 
     public int getUserSelection(int max) {
@@ -106,6 +110,13 @@ public class MainMenu {
                 break;
 
             case 9:
+                operatorSetFrozen(true);
+                break;
+            case 10:
+                operatorSetFrozen(false);
+                break;
+
+            case 11:
                 persistBankState();
                 System.out.println("Goodbye!");
                 break;
@@ -172,7 +183,7 @@ public class MainMenu {
         return types[sel - 1];
     }
 
-    // Called on option 9 so the next launch can tryLoad the same balances and history
+    // Called on exit so the next launch can tryLoad the same balances and history
     private void persistBankState() {
         try {
             BankPersistence.save(bank, activeAccountId, dataPath);
@@ -187,7 +198,7 @@ public class MainMenu {
         try {
             getActiveAccount().withdraw(amount);
         } catch (IllegalStateException e) {
-            System.out.println("Withdrawal failed. Insufficient funds.");
+            System.out.println("Withdrawal failed. " + e.getMessage());
         } catch (IllegalArgumentException e) {
             System.out.println("Withdrawal failed. " + e.getMessage());
         }
@@ -198,9 +209,19 @@ public class MainMenu {
 
         try {
             getActiveAccount().deposit(amount);
+        } catch (IllegalStateException e) {
+            System.out.println("Deposit failed. " + e.getMessage());
         } catch (IllegalArgumentException e) {
             System.out.println("Deposit failed. " + e.getMessage());
         }
+    }
+
+    private void operatorSetFrozen(boolean freeze) {
+        String id = promptNonEmptyAccountId("Operator — account id: ");
+        if (id == null) {
+            return;
+        }
+        System.out.println(bank.setAccountFrozen(id, freeze).getMessage());
     }
 
     private Account getActiveAccount() {

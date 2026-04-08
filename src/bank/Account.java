@@ -9,11 +9,13 @@ public class Account {
     private final String accountNumber;
     private double balance;
     private final List<Transaction> transactionHistory;
+    private boolean frozen;
 
     public Account(String accountNumber, double initialBalance) {
         this.accountNumber = accountNumber;
         this.balance = initialBalance;
         this.transactionHistory = new ArrayList<>();
+        this.frozen = false;
 
         long now = System.currentTimeMillis();
         String openDetail =
@@ -21,17 +23,35 @@ public class Account {
         transactionHistory.add(new Transaction(Transaction.Type.OPEN, initialBalance, now, openDetail));
     }
 
-    // Rebuilds from disk; fullHistory must already include OPEN and agree with balance
+    // Rebuilds from disk; fullHistory must already include our OPEN call and agree with balance
     public static Account fromPersisted(
-            String accountNumber, double balance, List<Transaction> fullHistory) {
-        return new Account(accountNumber, balance, new ArrayList<>(fullHistory));
+            String accountNumber, double balance, List<Transaction> fullHistory, boolean frozen) {
+        return new Account(accountNumber, balance, new ArrayList<>(fullHistory), frozen);
     }
 
-    // Same in-memory shape as the public constructor, without inserting another OPEN row
-    private Account(String accountNumber, double balance, List<Transaction> persistedHistory) {
+    private Account(
+            String accountNumber,
+            double balance,
+            List<Transaction> persistedHistory,
+            boolean frozen) {
         this.accountNumber = accountNumber;
         this.balance = balance;
         this.transactionHistory = persistedHistory;
+        this.frozen = frozen;
+    }
+
+    public boolean isFrozen() {
+        return frozen;
+    }
+
+    void setFrozen(boolean frozen) {
+        this.frozen = frozen;
+    }
+
+    private void ensureNotFrozen() {
+        if (frozen) {
+            throw new IllegalStateException("This account is frozen.");
+        }
     }
 
     public String getAccountNumber() {
@@ -60,6 +80,7 @@ public class Account {
     }
 
     public void deposit(double amount) {
+        ensureNotFrozen();
         if (amount <= 0) {
             throw new IllegalArgumentException("Deposit amount must be positive");
         }
@@ -70,6 +91,7 @@ public class Account {
     }
 
     public void withdraw(double amount) {
+        ensureNotFrozen();
         if (amount <= 0) {
             throw new IllegalArgumentException("Withdrawal amount must be positive");
         }
@@ -83,6 +105,7 @@ public class Account {
     }
 
     public void transferIn(double amount) {
+        ensureNotFrozen();
         if (amount <= 0) {
             throw new IllegalArgumentException("Transfer amount must be positive");
         }
@@ -94,6 +117,7 @@ public class Account {
     }
 
     public void transferOut(double amount) {
+        ensureNotFrozen();
         if (amount <= 0) {
             throw new IllegalArgumentException("Transfer amount must be positive");
         }
