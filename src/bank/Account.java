@@ -1,57 +1,83 @@
 package bank;
 
-import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
-/**
- * A simple bank account with balance and an append-only transaction log.
- */
 public class Account {
-    private final String accountNumber;
-    private BigDecimal balance;
-    private final List<String> transactionHistory;
 
-    public Account(String accountNumber, BigDecimal initialBalance) {
+    private final String accountNumber;
+    private double balance;
+    private final List<Transaction> transactionHistory;
+
+    public Account(String accountNumber, double initialBalance) {
         this.accountNumber = accountNumber;
         this.balance = initialBalance;
         this.transactionHistory = new ArrayList<>();
-        if (initialBalance.compareTo(BigDecimal.ZERO) != 0) {
-            transactionHistory.add("Opened with balance " + initialBalance);
-        } else {
-            transactionHistory.add("Account opened");
-        }
+
+        long now = System.currentTimeMillis();
+        String openDetail =
+                initialBalance == 0 ? "Account opened" : "Opened with balance " + initialBalance;
+        transactionHistory.add(new Transaction(Transaction.Type.OPEN, initialBalance, now, openDetail));
     }
 
     public String getAccountNumber() {
         return accountNumber;
     }
 
-    public BigDecimal getBalance() {
+    public double getBalance() {
         return balance;
     }
 
-    public List<String> getTransactionHistory() {
+    public List<Transaction> getTransactionHistory() {
         return Collections.unmodifiableList(transactionHistory);
     }
 
-    public void deposit(BigDecimal amount) {
-        if (amount.compareTo(BigDecimal.ZERO) <= 0) {
+    public void deposit(double amount) {
+        if (amount <= 0) {
             throw new IllegalArgumentException("Deposit amount must be positive");
         }
-        balance = balance.add(amount);
-        transactionHistory.add("Deposit " + amount);
+
+        balance += amount;
+        transactionHistory.add(
+                new Transaction(Transaction.Type.DEPOSIT, amount, System.currentTimeMillis(), ""));
     }
 
-    public void withdraw(BigDecimal amount) {
-        if (amount.compareTo(BigDecimal.ZERO) <= 0) {
+    public void withdraw(double amount) {
+        if (amount <= 0) {
             throw new IllegalArgumentException("Withdrawal amount must be positive");
         }
-        if (balance.compareTo(amount) < 0) {
+        if (balance < amount) {
             throw new IllegalStateException("Insufficient funds");
         }
-        balance = balance.subtract(amount);
-        transactionHistory.add("Withdrawal " + amount);
+
+        balance -= amount;
+        transactionHistory.add(
+                new Transaction(Transaction.Type.WITHDRAW, amount, System.currentTimeMillis(), ""));
+    }
+
+    public void transferIn(double amount) {
+        if (amount <= 0) {
+            throw new IllegalArgumentException("Transfer amount must be positive");
+        }
+
+        balance += amount;
+        transactionHistory.add(
+                new Transaction(
+                        Transaction.Type.TRANSFER_IN, amount, System.currentTimeMillis(), "Transfer in"));
+    }
+
+    public void transferOut(double amount) {
+        if (amount <= 0) {
+            throw new IllegalArgumentException("Transfer amount must be positive");
+        }
+        if (balance < amount) {
+            throw new IllegalStateException("Insufficient funds");
+        }
+
+        balance -= amount;
+        transactionHistory.add(
+                new Transaction(
+                        Transaction.Type.TRANSFER_OUT, amount, System.currentTimeMillis(), "Transfer out"));
     }
 }
