@@ -4,6 +4,8 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.YearMonth;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -14,8 +16,8 @@ public final class BankPersistence {
     // Default file next to the working directory when the CLI exits normally
     public static final String DEFAULT_FILENAME = "bank-data.txt";
 
-    // First line of every save file; load fails fast if this does not match
-    static final String HEADER = "BANK_PERSIST_V1";
+    static final String HEADER_V1 = "BANK_PERSIST_V1";
+    static final String HEADER_V2 = "BANK_PERSIST_V2";
 
     private BankPersistence() {}
 
@@ -26,7 +28,7 @@ public final class BankPersistence {
     public static void save(Bank bank, String activeAccountId, Path path) throws IOException {
         StringBuilder sb = new StringBuilder();
 
-        sb.append(HEADER).append('\n');
+        sb.append(HEADER_V2).append('\n');
         sb.append("ACTIVE|").append(escapeField(activeAccountId)).append('\n');
 
         // One block per account: ACC line, TXN lines in order, ENDACC
@@ -35,7 +37,17 @@ public final class BankPersistence {
                     .append(escapeField(acc.getAccountNumber()))
                     .append('|')
                     .append(formatDouble(acc.getBalance()))
-                    .append('\n');
+                    .append('|')
+                    .append(acc.getAccountType().name());
+
+            if (acc.getAccountType() == AccountType.SAVINGS) {
+                sb.append('|')
+                        .append(escapeField(acc.getSavingsPeriodKeyForPersistence()))
+                        .append('|')
+                        .append(acc.getSavingsWithdrawalsThisPeriodForPersistence());
+            }
+
+            sb.append('\n');
 
             for (Transaction t : acc.getTransactionHistory()) {
                 sb.append("TXN|")
@@ -77,7 +89,13 @@ public final class BankPersistence {
     public static BankSnapshot load(Path path) throws IOException {
         List<String> lines = Files.readAllLines(path, StandardCharsets.UTF_8);
 
-        if (lines.isEmpty() || !HEADER.equals(lines.get(0).trim())) {
+        if (lines.isEmpty()) {
+            throw new IllegalArgumentException("Missing or invalid header.");
+        }
+
+        String header = lines.get(0).trim();
+        boolean formatV2 = HEADER_V2.equals(header);
+        if (!formatV2 && !HEADER_V1.equals(header)) {
             throw new IllegalArgumentException("Missing or invalid header.");
         }
 
@@ -107,13 +125,8 @@ public final class BankPersistence {
             }
 
             String accPayload = line.substring("ACC|".length());
-            int balSep = accPayload.lastIndexOf('|');
-            if (balSep < 0) {
-                throw new IllegalArgumentException("Invalid ACC line.");
-            }
-
-            String accountId = unescapeField(accPayload.substring(0, balSep));
-            double balance = Double.parseDouble(accPayload.substring(balSep + 1));
+            AccLineMeta meta =
+                    formatV2 ? parseAccountLineV2(accPayload) : parseAccountLineV1(accPayload);
             i++;
 
             List<Transaction> txns = new ArrayList<>();
@@ -128,7 +141,14 @@ public final class BankPersistence {
                 txns.add(parseTxnLine(txLine));
             }
 
-            bank.addAccount(Account.fromPersisted(accountId, balance, txns));
+            bank.addAccount(
+                    Account.fromPersisted(
+                            meta.accountId,
+                            meta.balance,
+                            txns,
+                            meta.accountType,
+                            meta.savingsPeriodKey,
+                            meta.savingsWithdrawalsThisPeriod));
         }
 
         if (bank.getAccountCount() == 0) {
@@ -141,6 +161,77 @@ public final class BankPersistence {
         }
 
         return new BankSnapshot(bank, activeAccountId);
+    }
+
+    private static final class AccLineMeta {
+        final String accountId;
+        final double balance;
+        final AccountType accountType;
+        final String savingsPeriodKey;
+        final int savingsWithdrawalsThisPeriod;
+
+        AccLineMeta(
+                String accountId,
+                double balance,
+                AccountType accountType,
+                String savingsPeriodKey,
+                int savingsWithdrawalsThisPeriod) {
+            this.accountId = accountId;
+            this.balance = balance;
+            this.accountType = accountType;
+            this.savingsPeriodKey = savingsPeriodKey;
+            this.savingsWithdrawalsThisPeriod = savingsWithdrawalsThisPeriod;
+        }
+    }
+
+    private static AccLineMeta parseAccountLineV1(String accPayload) {
+        int balSep = accPayload.lastIndexOf('|');
+        if (balSep < 0) {
+            throw new IllegalArgumentException("Invalid ACC line.");
+        }
+
+        String accountId = unescapeField(accPayload.substring(0, balSep));
+        double balance = Double.parseDouble(accPayload.substring(balSep + 1));
+        String ym = YearMonth.now(ZoneId.systemDefault()).toString();
+        return new AccLineMeta(accountId, balance, AccountType.CHECKING, ym, 0);
+    }
+
+    private static AccLineMeta parseAccountLineV2(String accPayload) {
+        int pRight = accPayload.lastIndexOf('|');
+        if (pRight < 0) {
+            throw new IllegalArgumentException("Invalid ACC line.");
+        }
+
+        String rightToken = accPayload.substring(pRight + 1);
+
+        if (AccountType.CHECKING.name().equals(rightToken)) {
+            int pBal = accPayload.lastIndexOf('|', pRight - 1);
+            if (pBal < 0) {
+                throw new IllegalArgumentException("Invalid ACC line.");
+            }
+            double balance = Double.parseDouble(accPayload.substring(pBal + 1, pRight));
+            String accountId = unescapeField(accPayload.substring(0, pBal));
+            String ym = YearMonth.now(ZoneId.systemDefault()).toString();
+            return new AccLineMeta(accountId, balance, AccountType.CHECKING, ym, 0);
+        }
+
+        int pCount = pRight;
+        int pPeriod = accPayload.lastIndexOf('|', pCount - 1);
+        int pSav = accPayload.lastIndexOf('|', pPeriod - 1);
+        int pBal = accPayload.lastIndexOf('|', pSav - 1);
+        if (pBal < 0) {
+            throw new IllegalArgumentException("Invalid ACC line.");
+        }
+
+        int withdrawals = Integer.parseInt(accPayload.substring(pCount + 1));
+        String periodKey = unescapeField(accPayload.substring(pPeriod + 1, pCount));
+        String typeStr = accPayload.substring(pSav + 1, pPeriod);
+        if (!AccountType.SAVINGS.name().equals(typeStr)) {
+            throw new IllegalArgumentException("Unknown account type in ACC line: " + typeStr);
+        }
+        double balance = Double.parseDouble(accPayload.substring(pBal + 1, pSav));
+        String accountId = unescapeField(accPayload.substring(0, pBal));
+        return new AccLineMeta(accountId, balance, AccountType.SAVINGS, periodKey, withdrawals);
     }
 
     private static Transaction parseTxnLine(String line) {

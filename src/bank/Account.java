@@ -1,41 +1,102 @@
 package bank;
 
+import java.time.Instant;
+import java.time.YearMonth;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
 public class Account {
 
+    public static final double SAVINGS_MIN_OPENING_BALANCE = 50.0;
+    public static final int SAVINGS_MAX_WITHDRAWALS_PER_MONTH = 6;
+
+    private static final double EPS = 1e-9;
+
     private final String accountNumber;
     private double balance;
     private final List<Transaction> transactionHistory;
+    private final AccountType accountType;
+
+    private String savingsPeriodKey;
+
+    private int savingsWithdrawalsThisPeriod;
 
     public Account(String accountNumber, double initialBalance) {
+        this(accountNumber, initialBalance, AccountType.CHECKING);
+    }
+
+    public Account(String accountNumber, double initialBalance, AccountType accountType) {
+        if (accountType == AccountType.SAVINGS && initialBalance + EPS < SAVINGS_MIN_OPENING_BALANCE) {
+            throw new IllegalArgumentException(
+                    "Savings accounts require a minimum opening deposit of $"
+                            + SAVINGS_MIN_OPENING_BALANCE);
+        }
+
         this.accountNumber = accountNumber;
         this.balance = initialBalance;
         this.transactionHistory = new ArrayList<>();
+        this.accountType = accountType;
+        this.savingsPeriodKey = currentYearMonthKey();
+        this.savingsWithdrawalsThisPeriod = 0;
 
         long now = System.currentTimeMillis();
-        String openDetail =
-                initialBalance == 0 ? "Account opened" : "Opened with balance " + initialBalance;
+        String openDetail = buildOpenDetail(initialBalance, accountType);
         transactionHistory.add(new Transaction(Transaction.Type.OPEN, initialBalance, now, openDetail));
     }
 
-    // Rebuilds from disk; fullHistory must already include OPEN and agree with balance
     public static Account fromPersisted(
-            String accountNumber, double balance, List<Transaction> fullHistory) {
-        return new Account(accountNumber, balance, new ArrayList<>(fullHistory));
+            String accountNumber,
+            double balance,
+            List<Transaction> fullHistory,
+            AccountType accountType,
+            String savingsPeriodKey,
+            int savingsWithdrawalsThisPeriod) {
+        return new Account(
+                accountNumber,
+                balance,
+                new ArrayList<>(fullHistory),
+                accountType,
+                savingsPeriodKey,
+                savingsWithdrawalsThisPeriod);
     }
 
-    // Same in-memory shape as the public constructor, without inserting another OPEN row
-    private Account(String accountNumber, double balance, List<Transaction> persistedHistory) {
+    private Account(
+            String accountNumber,
+            double balance,
+            List<Transaction> persistedHistory,
+            AccountType accountType,
+            String savingsPeriodKey,
+            int savingsWithdrawalsThisPeriod) {
         this.accountNumber = accountNumber;
         this.balance = balance;
         this.transactionHistory = persistedHistory;
+        this.accountType = accountType;
+        this.savingsPeriodKey =
+                savingsPeriodKey != null && !savingsPeriodKey.isEmpty()
+                        ? savingsPeriodKey
+                        : currentYearMonthKey();
+        this.savingsWithdrawalsThisPeriod = savingsWithdrawalsThisPeriod;
+    }
+
+    private static String buildOpenDetail(double initialBalance, AccountType accountType) {
+        String typeWord = accountType == AccountType.CHECKING ? "Checking" : "Savings";
+        String bal =
+                initialBalance == 0 ? "Account opened" : "Opened with balance " + initialBalance;
+        return typeWord + " — " + bal;
+    }
+
+    private static String currentYearMonthKey() {
+        return YearMonth.now(ZoneId.systemDefault()).toString();
     }
 
     public String getAccountNumber() {
         return accountNumber;
+    }
+
+    public AccountType getAccountType() {
+        return accountType;
     }
 
     public double getBalance() {
@@ -46,7 +107,31 @@ public class Account {
         return Collections.unmodifiableList(transactionHistory);
     }
 
-    // Subset view for the history menu filter
+    /** For savings, withdrawals remaining this calendar month; for checking, -1 means not applicable. */
+    public int getSavingsWithdrawalsRemainingThisMonth() {
+        if (accountType != AccountType.SAVINGS) {
+            return -1;
+        }
+        syncSavingsPeriod();
+        return Math.max(0, SAVINGS_MAX_WITHDRAWALS_PER_MONTH - savingsWithdrawalsThisPeriod);
+    }
+
+    public String getAccountRulesSummary() {
+        if (accountType == AccountType.CHECKING) {
+            return "Checking — no monthly withdrawal limit.";
+        }
+        syncSavingsPeriod();
+        int left = Math.max(0, SAVINGS_MAX_WITHDRAWALS_PER_MONTH - savingsWithdrawalsThisPeriod);
+        return "Savings — min. opening deposit was $"
+                + SAVINGS_MIN_OPENING_BALANCE
+                + "; up to "
+                + SAVINGS_MAX_WITHDRAWALS_PER_MONTH
+                + " withdrawals per month ("
+                + left
+                + " remaining this month).";
+    }
+
+
     public List<Transaction> getTransactionHistoryByType(Transaction.Type type) {
         List<Transaction> out = new ArrayList<>();
 
@@ -73,6 +158,7 @@ public class Account {
         if (amount <= 0) {
             throw new IllegalArgumentException("Withdrawal amount must be positive");
         }
+        assertSavingsWithdrawalAllowed();
         if (balance < amount) {
             throw new IllegalStateException("Insufficient funds");
         }
@@ -80,6 +166,7 @@ public class Account {
         balance -= amount;
         transactionHistory.add(
                 new Transaction(Transaction.Type.WITHDRAW, amount, System.currentTimeMillis(), ""));
+        recordSavingsOutgoingWithdrawal();
     }
 
     public void transferIn(double amount) {
@@ -97,6 +184,7 @@ public class Account {
         if (amount <= 0) {
             throw new IllegalArgumentException("Transfer amount must be positive");
         }
+        assertSavingsWithdrawalAllowed();
         if (balance < amount) {
             throw new IllegalStateException("Insufficient funds");
         }
@@ -105,5 +193,46 @@ public class Account {
         transactionHistory.add(
                 new Transaction(
                         Transaction.Type.TRANSFER_OUT, amount, System.currentTimeMillis(), "Transfer out"));
+        recordSavingsOutgoingWithdrawal();
+    }
+
+    private void syncSavingsPeriod() {
+        if (accountType != AccountType.SAVINGS) {
+            return;
+        }
+        String nowKey = currentYearMonthKey();
+        if (!nowKey.equals(savingsPeriodKey)) {
+            savingsPeriodKey = nowKey;
+            savingsWithdrawalsThisPeriod = 0;
+        }
+    }
+
+    private void assertSavingsWithdrawalAllowed() {
+        if (accountType != AccountType.SAVINGS) {
+            return;
+        }
+        syncSavingsPeriod();
+        if (savingsWithdrawalsThisPeriod >= SAVINGS_MAX_WITHDRAWALS_PER_MONTH) {
+            throw new IllegalStateException(
+                    "Savings accounts allow at most "
+                            + SAVINGS_MAX_WITHDRAWALS_PER_MONTH
+                            + " withdrawals per calendar month.");
+        }
+    }
+
+    private void recordSavingsOutgoingWithdrawal() {
+        if (accountType != AccountType.SAVINGS) {
+            return;
+        }
+        syncSavingsPeriod();
+        savingsWithdrawalsThisPeriod++;
+    }
+
+    String getSavingsPeriodKeyForPersistence() {
+        return savingsPeriodKey;
+    }
+
+    int getSavingsWithdrawalsThisPeriodForPersistence() {
+        return savingsWithdrawalsThisPeriod;
     }
 }

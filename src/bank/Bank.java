@@ -28,6 +28,11 @@ public class Bank {
     }
 
     public CreateAccountResult tryCreateAccount(String accountId, double initialBalance) {
+        return tryCreateAccount(accountId, initialBalance, AccountType.CHECKING);
+    }
+
+    public CreateAccountResult tryCreateAccount(
+            String accountId, double initialBalance, AccountType accountType) {
         if (accountId == null || accountId.isBlank()) {
             return CreateAccountResult.failure("Account id cannot be empty.");
         }
@@ -37,9 +42,26 @@ public class Bank {
         if (initialBalance < 0 || Double.isNaN(initialBalance)) {
             return CreateAccountResult.failure("Initial balance cannot be negative.");
         }
+        if (accountType == AccountType.SAVINGS
+                && initialBalance + EPS < Account.SAVINGS_MIN_OPENING_BALANCE) {
+            return CreateAccountResult.failure(
+                    "Savings accounts require a minimum opening deposit of $"
+                            + Account.SAVINGS_MIN_OPENING_BALANCE
+                            + ".");
+        }
 
-        addAccount(new Account(accountId, initialBalance));
-        return CreateAccountResult.success("Created account " + accountId + ".");
+        try {
+            addAccount(new Account(accountId, initialBalance, accountType));
+        } catch (IllegalArgumentException e) {
+            return CreateAccountResult.failure(e.getMessage());
+        }
+
+        return CreateAccountResult.success(
+                "Created "
+                        + accountType.getLabel().toLowerCase()
+                        + " account "
+                        + accountId
+                        + ".");
     }
 
     public CloseAccountResult closeCustomerAccount(String accountNumber) {
@@ -76,8 +98,12 @@ public class Bank {
                     "Insufficient funds. Balance: " + from.getBalance() + ", requested: " + amount);
         }
 
-        from.transferOut(amount);
-        to.transferIn(amount);
+        try {
+            from.transferOut(amount);
+            to.transferIn(amount);
+        } catch (IllegalStateException e) {
+            return TransferResult.failure(e.getMessage());
+        }
 
         return TransferResult.success(
                 "Transferred " + amount + " from " + fromNumber + " to " + toNumber + ".");
