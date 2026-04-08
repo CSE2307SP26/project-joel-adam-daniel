@@ -2,9 +2,13 @@ package main;
 
 import bank.Account;
 import bank.Bank;
+import bank.BankPersistence;
 import bank.Transaction;
 
+import java.io.IOException;
+import java.nio.file.Path;
 import java.util.List;
+import java.util.Optional;
 import java.util.Scanner;
 
 public class MainMenu {
@@ -15,11 +19,28 @@ public class MainMenu {
     private final Bank bank;
     private String activeAccountId;
     private final Scanner keyboardInput;
+    private final Path dataPath;
 
     public MainMenu() {
-        this.bank = new Bank();
-        this.activeAccountId = "A001";
-        this.bank.addAccount(new Account(activeAccountId, 0));
+        this(BankPersistence.defaultPath());
+    }
+
+    // dataPath lets tests use a temp file; production uses bank-data.txt in the working directory
+    public MainMenu(Path dataPath) {
+        this.dataPath = dataPath;
+
+        Optional<BankPersistence.BankSnapshot> snapshot = BankPersistence.tryLoad(dataPath);
+
+        if (snapshot.isPresent()) {
+            this.bank = snapshot.get().getBank();
+            this.activeAccountId = snapshot.get().getActiveAccountId();
+        } else {
+            // No save file yet — same seed account as before persistence existed
+            this.bank = new Bank();
+            this.activeAccountId = "A001";
+            this.bank.addAccount(new Account(activeAccountId, 0));
+        }
+
         this.keyboardInput = new Scanner(System.in);
     }
 
@@ -84,6 +105,11 @@ public class MainMenu {
                 transferMoney();
                 break;
 
+            case 9:
+                persistBankState();
+                System.out.println("Goodbye!");
+                break;
+
             default:
                 break;
         }
@@ -144,6 +170,15 @@ public class MainMenu {
         }
 
         return types[sel - 1];
+    }
+
+    // Called on option 9 so the next launch can tryLoad the same balances and history
+    private void persistBankState() {
+        try {
+            BankPersistence.save(bank, activeAccountId, dataPath);
+        } catch (IOException e) {
+            System.err.println("Could not save bank data: " + e.getMessage());
+        }
     }
 
     public void performWithdrawal() {
