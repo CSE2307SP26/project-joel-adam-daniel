@@ -94,16 +94,56 @@ public class MainMenu {
     }
 
     public void viewTransactionHistory() {
-        List<Transaction> history = getActiveAccount().getTransactionHistory();
+        System.out.println("1. All transactions");
+        System.out.println("2. Filter by type");
 
-        if (history.isEmpty()) {
-            System.out.println("No transactions found for this account.");
-            return;
+        int mode = getUserSelection(2);
+
+        List<Transaction> history;
+
+        if (mode == 2) {
+            Transaction.Type type = promptTransactionType();
+            if (type == null) {
+                System.out.println("Cancelled.");
+                return;
+            }
+
+            history = getActiveAccount().getTransactionHistoryByType(type);
+
+            if (history.isEmpty()) {
+                System.out.println("No transactions of type " + type + " for this account.");
+                return;
+            }
+        } else {
+            history = getActiveAccount().getTransactionHistory();
+
+            if (history.isEmpty()) {
+                System.out.println("No transactions found for this account.");
+                return;
+            }
         }
 
         for (Transaction t : history) {
             System.out.println(t);
         }
+    }
+
+    private Transaction.Type promptTransactionType() {
+        Transaction.Type[] types = Transaction.Type.values();
+
+        System.out.println("Select transaction type:");
+        for (int i = 0; i < types.length; i++) {
+            System.out.println((i + 1) + ". " + types[i]);
+        }
+        System.out.println((types.length + 1) + ". Cancel");
+
+        int sel = getUserSelection(types.length + 1);
+
+        if (sel == types.length + 1) {
+            return null;
+        }
+
+        return types[sel - 1];
     }
 
     public void performWithdrawal() {
