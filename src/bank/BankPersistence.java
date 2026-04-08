@@ -14,8 +14,8 @@ public final class BankPersistence {
     // Default file next to the working directory when the CLI exits normally
     public static final String DEFAULT_FILENAME = "bank-data.txt";
 
-    // First line of every save file; load fails fast if this does not match
-    static final String HEADER = "BANK_PERSIST_V1";
+    static final String HEADER_V1 = "BANK_PERSIST_V1";
+    static final String HEADER_V2 = "BANK_PERSIST_V2";
 
     private BankPersistence() {}
 
@@ -26,7 +26,7 @@ public final class BankPersistence {
     public static void save(Bank bank, String activeAccountId, Path path) throws IOException {
         StringBuilder sb = new StringBuilder();
 
-        sb.append(HEADER).append('\n');
+        sb.append(HEADER_V2).append('\n');
         sb.append("ACTIVE|").append(escapeField(activeAccountId)).append('\n');
 
         // One block per account: ACC line, TXN lines in order, ENDACC
@@ -35,6 +35,8 @@ public final class BankPersistence {
                     .append(escapeField(acc.getAccountNumber()))
                     .append('|')
                     .append(formatDouble(acc.getBalance()))
+                    .append('|')
+                    .append(acc.isFrozen() ? "1" : "0")
                     .append('\n');
 
             for (Transaction t : acc.getTransactionHistory()) {
@@ -77,7 +79,13 @@ public final class BankPersistence {
     public static BankSnapshot load(Path path) throws IOException {
         List<String> lines = Files.readAllLines(path, StandardCharsets.UTF_8);
 
-        if (lines.isEmpty() || !HEADER.equals(lines.get(0).trim())) {
+        if (lines.isEmpty()) {
+            throw new IllegalArgumentException("Missing or invalid header.");
+        }
+
+        String header = lines.get(0).trim();
+        boolean formatV2 = HEADER_V2.equals(header);
+        if (!formatV2 && !HEADER_V1.equals(header)) {
             throw new IllegalArgumentException("Missing or invalid header.");
         }
 
@@ -107,13 +115,8 @@ public final class BankPersistence {
             }
 
             String accPayload = line.substring("ACC|".length());
-            int balSep = accPayload.lastIndexOf('|');
-            if (balSep < 0) {
-                throw new IllegalArgumentException("Invalid ACC line.");
-            }
-
-            String accountId = unescapeField(accPayload.substring(0, balSep));
-            double balance = Double.parseDouble(accPayload.substring(balSep + 1));
+            AccLineParsed parsed =
+                    formatV2 ? parseAccLineV2(accPayload) : parseAccLineV1(accPayload);
             i++;
 
             List<Transaction> txns = new ArrayList<>();
@@ -128,7 +131,8 @@ public final class BankPersistence {
                 txns.add(parseTxnLine(txLine));
             }
 
-            bank.addAccount(Account.fromPersisted(accountId, balance, txns));
+            bank.addAccount(
+                    Account.fromPersisted(parsed.accountId, parsed.balance, txns, parsed.frozen));
         }
 
         if (bank.getAccountCount() == 0) {
@@ -141,6 +145,49 @@ public final class BankPersistence {
         }
 
         return new BankSnapshot(bank, activeAccountId);
+    }
+
+    private static final class AccLineParsed {
+        final String accountId;
+        final double balance;
+        final boolean frozen;
+
+        AccLineParsed(String accountId, double balance, boolean frozen) {
+            this.accountId = accountId;
+            this.balance = balance;
+            this.frozen = frozen;
+        }
+    }
+
+    private static AccLineParsed parseAccLineV1(String accPayload) {
+        int balSep = accPayload.lastIndexOf('|');
+        if (balSep < 0) {
+            throw new IllegalArgumentException("Invalid ACC line.");
+        }
+
+        String accountId = unescapeField(accPayload.substring(0, balSep));
+        double balance = Double.parseDouble(accPayload.substring(balSep + 1));
+        return new AccLineParsed(accountId, balance, false);
+    }
+
+    private static AccLineParsed parseAccLineV2(String accPayload) {
+        int pFrozen = accPayload.lastIndexOf('|');
+        if (pFrozen < 0) {
+            throw new IllegalArgumentException("Invalid ACC line.");
+        }
+        int pBal = accPayload.lastIndexOf('|', pFrozen - 1);
+        if (pBal < 0) {
+            throw new IllegalArgumentException("Invalid ACC line.");
+        }
+
+        String frozenFlag = accPayload.substring(pFrozen + 1);
+        if (!"0".equals(frozenFlag) && !"1".equals(frozenFlag)) {
+            throw new IllegalArgumentException("Invalid frozen flag in ACC line.");
+        }
+
+        double balance = Double.parseDouble(accPayload.substring(pBal + 1, pFrozen));
+        String accountId = unescapeField(accPayload.substring(0, pBal));
+        return new AccLineParsed(accountId, balance, "1".equals(frozenFlag));
     }
 
     private static Transaction parseTxnLine(String line) {

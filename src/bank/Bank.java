@@ -42,6 +42,21 @@ public class Bank {
         return CreateAccountResult.success("Created account " + accountId + ".");
     }
 
+    public OperatorResult setAccountFrozen(String accountNumber, boolean freeze) {
+        if (accountNumber == null || accountNumber.isBlank()) {
+            return OperatorResult.failure("Account id cannot be empty.");
+        }
+        Account acc = accounts.get(accountNumber);
+        if (acc == null) {
+            return OperatorResult.failure("Account not found: " + accountNumber);
+        }
+        acc.setFrozen(freeze);
+        return OperatorResult.success(
+                freeze
+                        ? "Account " + accountNumber + " is now frozen."
+                        : "Account " + accountNumber + " is now unfrozen.");
+    }
+
     public CloseAccountResult closeCustomerAccount(String accountNumber) {
         if (accounts.size() <= 1) {
             return CloseAccountResult.failure("Cannot close the only remaining account.");
@@ -69,6 +84,13 @@ public class Bank {
         }
         if (to == null) {
             return TransferResult.failure("Destination account not found: " + toNumber);
+        }
+
+        if (from.isFrozen()) {
+            return TransferResult.failure("Source account is frozen.");
+        }
+        if (to.isFrozen()) {
+            return TransferResult.failure("Destination account is frozen.");
         }
 
         if (from.getBalance() + EPS < amount) {
@@ -169,6 +191,32 @@ public class Bank {
 
         public static CloseAccountResult failure(String message) {
             return new CloseAccountResult(false, message);
+        }
+
+        public boolean isSuccess() {
+            return success;
+        }
+
+        public String getMessage() {
+            return message;
+        }
+    }
+
+    public static final class OperatorResult {
+        private final boolean success;
+        private final String message;
+
+        private OperatorResult(boolean success, String message) {
+            this.success = success;
+            this.message = message;
+        }
+
+        public static OperatorResult success(String message) {
+            return new OperatorResult(true, message);
+        }
+
+        public static OperatorResult failure(String message) {
+            return new OperatorResult(false, message);
         }
 
         public boolean isSuccess() {

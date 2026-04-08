@@ -11,6 +11,7 @@ import org.junit.jupiter.api.io.TempDir;
 import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class BankPersistenceTest {
@@ -41,6 +42,20 @@ class BankPersistenceTest {
         assertTrue(
                 b.getAccount("A001").getTransactionHistory().stream()
                         .anyMatch(t -> t.getType() == Transaction.Type.DEPOSIT));
+    }
+
+    @Test
+    void saveAndLoadPreservesFrozenFlag(@TempDir Path tempDir) throws Exception {
+        Path file = tempDir.resolve("frz.txt");
+        Bank bank = new Bank();
+        bank.addAccount(new Account("Z1", 10));
+        bank.setAccountFrozen("Z1", true);
+        BankPersistence.save(bank, "Z1", file);
+        Bank loaded = BankPersistence.load(file).getBank();
+        assertTrue(loaded.getAccount("Z1").isFrozen());
+        loaded.setAccountFrozen("Z1", false);
+        BankPersistence.save(loaded, "Z1", file);
+        assertFalse(BankPersistence.load(file).getBank().getAccount("Z1").isFrozen());
     }
 
     @Test
