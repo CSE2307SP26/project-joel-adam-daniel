@@ -34,16 +34,16 @@ N/A
 
 Run the app:
 
-```bash
-./runApp.sh
+```
+bash ./runApp.sh
 
 or  bash runApp.sh
 ```
 
 Run unit tests:
 
-```bash
-./runTests.sh or
+```
+bash./runTests.sh or
 
  bash runTests.sh
 ```
