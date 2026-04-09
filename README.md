@@ -24,7 +24,7 @@
 
 ## What user stories do you intend to complete next iteration?
 
-- 10 and 11 (freeze / unfreeze accounts and checking vs. savings account types).
+- A bank customer should be able to protect their bank account with a PIN
 
 ## Is there anything that you implemented but doesn't currently work?
 
