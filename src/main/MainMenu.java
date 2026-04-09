@@ -4,6 +4,7 @@ import bank.Account;
 import bank.AccountType;
 import bank.Bank;
 import bank.BankPersistence;
+import bank.PinLogin;
 import bank.Transaction;
 
 import java.io.IOException;
@@ -29,6 +30,7 @@ public class MainMenu {
     // dataPath lets tests use a temp file; production uses bank-data.txt in the working directory
     public MainMenu(Path dataPath) {
         this.dataPath = dataPath;
+        this.keyboardInput = new Scanner(System.in);
 
         Optional<BankPersistence.BankSnapshot> snapshot = BankPersistence.tryLoad(dataPath);
 
@@ -39,10 +41,9 @@ public class MainMenu {
             // No save file yet — same seed account as before persistence existed
             this.bank = new Bank();
             this.activeAccountId = "A001";
-            this.bank.addAccount(new Account(activeAccountId, 0, AccountType.CHECKING));
+            int seedPin = readFourDigitPin("Set a 4-digit PIN for account A001 (1000-9999): ");
+            this.bank.addAccount(new Account(activeAccountId, 0, AccountType.CHECKING, seedPin));
         }
-
-        this.keyboardInput = new Scanner(System.in);
     }
 
     public void displayOptions() {
@@ -283,7 +284,8 @@ public class MainMenu {
             initial = readNonNegativeMoney("Initial deposit (0 is ok): ");
         }
 
-        Bank.CreateAccountResult result = bank.tryCreateAccount(newId, initial, type);
+        int pin = readFourDigitPin("Choose a 4-digit PIN for this account (1000-9999): ");
+        Bank.CreateAccountResult result = bank.tryCreateAccount(newId, initial, type, pin);
         System.out.println(result.getMessage());
 
         if (result.isSuccess()) {
@@ -326,8 +328,18 @@ public class MainMenu {
             return;
         }
 
-        if (bank.getAccount(id) == null) {
+        Account target = bank.getAccount(id);
+        if (target == null) {
             System.out.println("Account not found.");
+            return;
+        }
+
+        if (id.equals(activeAccountId)) {
+            System.out.println("That account is already active.");
+            return;
+        }
+
+        if (!verifyPinForAccount(target)) {
             return;
         }
 
@@ -407,6 +419,52 @@ public class MainMenu {
         }
 
         return true;
+    }
+
+    private int readFourDigitPin(String prompt) {
+        while (true) {
+            System.out.print(prompt);
+            String line = keyboardInput.nextLine().trim();
+            try {
+                int pin = Integer.parseInt(line);
+                if (PinLogin.isValidPin(pin)) {
+                    return pin;
+                }
+            } catch (NumberFormatException ignored) {
+            }
+
+            System.out.println("PIN must be exactly 4 digits in the range 1000-9999.");
+        }
+    }
+
+    private boolean verifyPinForAccount(Account acc) {
+        if (acc.isPinLocked()) {
+            System.out.println("That account is locked due to too many incorrect PIN attempts.");
+            return false;
+        }
+
+        while (true) {
+            System.out.print("Enter PIN for account " + acc.getAccountNumber() + ": ");
+            String line = keyboardInput.nextLine().trim();
+            int entered;
+            try {
+                entered = Integer.parseInt(line);
+            } catch (NumberFormatException e) {
+                System.out.println("PIN must be numeric.");
+                continue;
+            }
+
+            if (acc.authenticatePin(entered)) {
+                return true;
+            }
+
+            if (acc.isPinLocked()) {
+                System.out.println("Too many failed attempts. This account is now locked.");
+                return false;
+            }
+
+            System.out.println("Incorrect PIN. Attempts remaining: " + acc.getPinRemainingAttempts());
+        }
     }
 
     private String promptNonEmptyAccountId(String prompt) {

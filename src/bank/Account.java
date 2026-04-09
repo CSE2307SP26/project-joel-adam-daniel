@@ -11,6 +11,11 @@ public class Account {
     public static final double SAVINGS_MIN_OPENING_BALANCE = 50.0;
     public static final int SAVINGS_MAX_WITHDRAWALS_PER_MONTH = 6;
 
+    /** Used when tests or legacy constructors omit an explicit PIN. */
+    public static final int DEFAULT_TEST_PIN = 1234;
+
+    public static final double DEFAULT_MINIMUM_BALANCE_THRESHOLD = 25.0;
+
     private static final double EPS = 1e-9;
 
     private final String accountNumber;
@@ -23,11 +28,19 @@ public class Account {
 
     private boolean frozen;
 
+    private final PinLogin pinLogin;
+
+    private double minimumBalanceThreshold;
+
     public Account(String accountNumber, double initialBalance) {
-        this(accountNumber, initialBalance, AccountType.CHECKING);
+        this(accountNumber, initialBalance, AccountType.CHECKING, DEFAULT_TEST_PIN);
     }
 
     public Account(String accountNumber, double initialBalance, AccountType accountType) {
+        this(accountNumber, initialBalance, accountType, DEFAULT_TEST_PIN);
+    }
+
+    public Account(String accountNumber, double initialBalance, AccountType accountType, int pin) {
         if (accountType == AccountType.SAVINGS && initialBalance + EPS < SAVINGS_MIN_OPENING_BALANCE) {
             throw new IllegalArgumentException(
                     "Savings accounts require a minimum opening deposit of $"
@@ -41,6 +54,8 @@ public class Account {
         this.savingsPeriodKey = currentYearMonthKey();
         this.savingsWithdrawalsThisPeriod = 0;
         this.frozen = false;
+        this.pinLogin = new PinLogin(pin);
+        this.minimumBalanceThreshold = DEFAULT_MINIMUM_BALANCE_THRESHOLD;
 
         long now = System.currentTimeMillis();
         String openDetail = buildOpenDetail(initialBalance, accountType);
@@ -54,7 +69,11 @@ public class Account {
             AccountType accountType,
             String savingsPeriodKey,
             int savingsWithdrawalsThisPeriod,
-            boolean frozen) {
+            boolean frozen,
+            int persistedPin,
+            int pinFailedAttempts,
+            boolean pinLocked,
+            double minimumBalanceThreshold) {
         return new Account(
                 accountNumber,
                 balance,
@@ -62,7 +81,9 @@ public class Account {
                 accountType,
                 savingsPeriodKey,
                 savingsWithdrawalsThisPeriod,
-                frozen);
+                frozen,
+                PinLogin.restoredForPersistence(persistedPin, pinFailedAttempts, pinLocked),
+                minimumBalanceThreshold);
     }
 
     private Account(
@@ -72,7 +93,9 @@ public class Account {
             AccountType accountType,
             String savingsPeriodKey,
             int savingsWithdrawalsThisPeriod,
-            boolean frozen) {
+            boolean frozen,
+            PinLogin pinLogin,
+            double minimumBalanceThreshold) {
         this.accountNumber = accountNumber;
         this.balance = balance;
         this.transactionHistory = persistedHistory;
@@ -83,6 +106,11 @@ public class Account {
                         : currentYearMonthKey();
         this.savingsWithdrawalsThisPeriod = savingsWithdrawalsThisPeriod;
         this.frozen = frozen;
+        this.pinLogin = pinLogin;
+        if (minimumBalanceThreshold < 0) {
+            throw new IllegalArgumentException("Minimum balance threshold cannot be negative.");
+        }
+        this.minimumBalanceThreshold = minimumBalanceThreshold;
     }
 
     private static String buildOpenDetail(double initialBalance, AccountType accountType) {
@@ -112,9 +140,6 @@ public class Account {
         return Collections.unmodifiableList(transactionHistory);
     }
 
-    /**
-     * For savings, withdrawals remaining this calendar month; for checking, -1 means not applicable.
-     */
     public int getSavingsWithdrawalsRemainingThisMonth() {
         if (accountType != AccountType.SAVINGS) {
             return -1;
@@ -150,6 +175,29 @@ public class Account {
         return Collections.unmodifiableList(out);
     }
 
+    public boolean authenticatePin(int enteredPin) {
+        return pinLogin.authenticate(enteredPin);
+    }
+
+    public boolean isPinLocked() {
+        return pinLogin.isLocked();
+    }
+
+    public int getPinRemainingAttempts() {
+        return pinLogin.getRemainingAttempts();
+    }
+
+    public void setMinimumBalanceThreshold(double threshold) {
+        if (threshold < 0) {
+            throw new IllegalArgumentException("Minimum balance threshold cannot be negative.");
+        }
+        this.minimumBalanceThreshold = threshold;
+    }
+
+    public double getMinimumBalanceThreshold() {
+        return minimumBalanceThreshold;
+    }
+
     public boolean isFrozen() {
         return frozen;
     }
@@ -162,6 +210,21 @@ public class Account {
         if (frozen) {
             throw new IllegalStateException("This account is frozen.");
         }
+    }
+
+    private void maybeWarnMinimumBalance() {
+        if (minimumBalanceThreshold <= 0) {
+            return;
+        }
+        if (balance < minimumBalanceThreshold) {
+            System.out.printf(
+                    "Warning: Your balance ($%.2f) is below the minimum balance of $%.2f.%n",
+                    balance, minimumBalanceThreshold);
+        }
+    }
+
+    PinLogin pinLoginForPersistence() {
+        return pinLogin;
     }
 
     public void deposit(double amount) {
@@ -189,6 +252,7 @@ public class Account {
         transactionHistory.add(
                 new Transaction(Transaction.Type.WITHDRAW, amount, System.currentTimeMillis(), ""));
         recordSavingsOutgoingWithdrawal();
+        maybeWarnMinimumBalance();
     }
 
     public void transferIn(double amount) {
@@ -218,6 +282,7 @@ public class Account {
                 new Transaction(
                         Transaction.Type.TRANSFER_OUT, amount, System.currentTimeMillis(), "Transfer out"));
         recordSavingsOutgoingWithdrawal();
+        maybeWarnMinimumBalance();
     }
 
     private void syncSavingsPeriod() {

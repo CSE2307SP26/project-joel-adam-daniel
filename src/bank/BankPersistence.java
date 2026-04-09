@@ -13,13 +13,13 @@ import java.util.Optional;
 
 public final class BankPersistence {
 
-    // Default file next to the working directory when the CLI exits normally
     public static final String DEFAULT_FILENAME = "bank-data.txt";
 
     static final String HEADER_V1 = "BANK_PERSIST_V1";
     static final String HEADER_V2 = "BANK_PERSIST_V2";
-    // V3: same ACC shape as V2 plus a trailing |0/1 frozen flag (avoids ambiguity with savings counts)
     static final String HEADER_V3 = "BANK_PERSIST_V3";
+    /** V3 ACC line plus {@code |pin|fail|lock|minBalance} at end. */
+    static final String HEADER_V4 = "BANK_PERSIST_V4";
 
     private BankPersistence() {}
 
@@ -30,11 +30,11 @@ public final class BankPersistence {
     public static void save(Bank bank, String activeAccountId, Path path) throws IOException {
         StringBuilder sb = new StringBuilder();
 
-        sb.append(HEADER_V3).append('\n');
+        sb.append(HEADER_V4).append('\n');
         sb.append("ACTIVE|").append(escapeField(activeAccountId)).append('\n');
 
-        // One block per account: ACC line, TXN lines in order, ENDACC
         for (Account acc : bank.getAllAccounts()) {
+            PinLogin p = acc.pinLoginForPersistence();
             sb.append("ACC|")
                     .append(escapeField(acc.getAccountNumber()))
                     .append('|')
@@ -49,7 +49,11 @@ public final class BankPersistence {
                         .append(acc.getSavingsWithdrawalsThisPeriodForPersistence());
             }
 
-            sb.append('|').append(acc.isFrozen() ? "1" : "0").append('\n');
+            sb.append('|').append(acc.isFrozen() ? "1" : "0");
+            sb.append('|').append(p.pinCodeForPersistence());
+            sb.append('|').append(p.failedAttemptsForPersistence());
+            sb.append('|').append(p.lockedForPersistence() ? "1" : "0");
+            sb.append('|').append(formatDouble(acc.getMinimumBalanceThreshold())).append('\n');
 
             for (Transaction t : acc.getTransactionHistory()) {
                 sb.append("TXN|")
@@ -76,7 +80,6 @@ public final class BankPersistence {
 
     public static Optional<BankSnapshot> tryLoad(Path path) {
         if (!Files.isRegularFile(path)) {
-            // First run, or user deleted the file — caller seeds defaults
             return Optional.empty();
         }
 
@@ -96,10 +99,11 @@ public final class BankPersistence {
         }
 
         String header = lines.get(0).trim();
+        boolean formatV4 = HEADER_V4.equals(header);
         boolean formatV3 = HEADER_V3.equals(header);
         boolean formatV2 = HEADER_V2.equals(header);
         boolean formatV1 = HEADER_V1.equals(header);
-        if (!formatV3 && !formatV2 && !formatV1) {
+        if (!formatV4 && !formatV3 && !formatV2 && !formatV1) {
             throw new IllegalArgumentException("Missing or invalid header.");
         }
 
@@ -129,12 +133,16 @@ public final class BankPersistence {
             }
 
             String accPayload = line.substring("ACC|".length());
-            AccLineMeta meta =
-                    formatV3
-                            ? parseAccountLineV3(accPayload)
-                            : formatV2
-                                    ? parseAccountLineV2(accPayload)
-                                    : parseAccountLineV1(accPayload);
+            AccLineMeta meta;
+            if (formatV4) {
+                meta = parseAccountLineV4(accPayload);
+            } else if (formatV3) {
+                meta = parseAccountLineV3(accPayload);
+            } else if (formatV2) {
+                meta = parseAccountLineV2(accPayload);
+            } else {
+                meta = parseAccountLineV1(accPayload);
+            }
             i++;
 
             List<Transaction> txns = new ArrayList<>();
@@ -157,14 +165,17 @@ public final class BankPersistence {
                             meta.accountType,
                             meta.savingsPeriodKey,
                             meta.savingsWithdrawalsThisPeriod,
-                            meta.frozen));
+                            meta.frozen,
+                            meta.persistedPin,
+                            meta.pinFailedAttempts,
+                            meta.pinLocked,
+                            meta.minimumBalanceThreshold));
         }
 
         if (bank.getAccountCount() == 0) {
             throw new IllegalArgumentException("No accounts in file.");
         }
 
-        // Stale ACTIVE id after manual edits — fall back to a real account
         if (bank.getAccount(activeAccountId) == null) {
             activeAccountId = bank.getAllAccounts().iterator().next().getAccountNumber();
         }
@@ -179,6 +190,10 @@ public final class BankPersistence {
         final String savingsPeriodKey;
         final int savingsWithdrawalsThisPeriod;
         final boolean frozen;
+        final int persistedPin;
+        final int pinFailedAttempts;
+        final boolean pinLocked;
+        final double minimumBalanceThreshold;
 
         AccLineMeta(
                 String accountId,
@@ -186,14 +201,57 @@ public final class BankPersistence {
                 AccountType accountType,
                 String savingsPeriodKey,
                 int savingsWithdrawalsThisPeriod,
-                boolean frozen) {
+                boolean frozen,
+                int persistedPin,
+                int pinFailedAttempts,
+                boolean pinLocked,
+                double minimumBalanceThreshold) {
             this.accountId = accountId;
             this.balance = balance;
             this.accountType = accountType;
             this.savingsPeriodKey = savingsPeriodKey;
             this.savingsWithdrawalsThisPeriod = savingsWithdrawalsThisPeriod;
             this.frozen = frozen;
+            this.persistedPin = persistedPin;
+            this.pinFailedAttempts = pinFailedAttempts;
+            this.pinLocked = pinLocked;
+            this.minimumBalanceThreshold = minimumBalanceThreshold;
         }
+    }
+
+    private static AccLineMeta parseAccountLineV4(String accPayload) {
+        int p = accPayload.lastIndexOf('|');
+        double minBal = Double.parseDouble(accPayload.substring(p + 1));
+        String rest = accPayload.substring(0, p);
+
+        p = rest.lastIndexOf('|');
+        String lockTok = rest.substring(p + 1);
+        if (!"0".equals(lockTok) && !"1".equals(lockTok)) {
+            throw new IllegalArgumentException("Invalid PIN lock flag.");
+        }
+        boolean pinLocked = "1".equals(lockTok);
+        rest = rest.substring(0, p);
+
+        p = rest.lastIndexOf('|');
+        int pinFail = Integer.parseInt(rest.substring(p + 1));
+        rest = rest.substring(0, p);
+
+        p = rest.lastIndexOf('|');
+        int pin = Integer.parseInt(rest.substring(p + 1));
+        rest = rest.substring(0, p);
+
+        AccLineMeta base = parseAccountLineV3(rest);
+        return new AccLineMeta(
+                base.accountId,
+                base.balance,
+                base.accountType,
+                base.savingsPeriodKey,
+                base.savingsWithdrawalsThisPeriod,
+                base.frozen,
+                pin,
+                pinFail,
+                pinLocked,
+                minBal);
     }
 
     private static AccLineMeta parseAccountLineV1(String accPayload) {
@@ -205,22 +263,15 @@ public final class BankPersistence {
         String accountId = unescapeField(accPayload.substring(0, balSep));
         double balance = Double.parseDouble(accPayload.substring(balSep + 1));
         String ym = YearMonth.now(ZoneId.systemDefault()).toString();
-        return new AccLineMeta(accountId, balance, AccountType.CHECKING, ym, 0, false);
-    }
-
-    /** Legacy V2 file (account types, no frozen flag stored). */
-    private static AccLineMeta parseAccountLineV2(String accPayload) {
-        AccLineMeta core = parseAccountLineV2Core(accPayload);
         return new AccLineMeta(
-                core.accountId,
-                core.balance,
-                core.accountType,
-                core.savingsPeriodKey,
-                core.savingsWithdrawalsThisPeriod,
-                false);
+                accountId, balance, AccountType.CHECKING, ym, 0, false,
+                Account.DEFAULT_TEST_PIN, 0, false, Account.DEFAULT_MINIMUM_BALANCE_THRESHOLD);
     }
 
-    /** V3: V2 payload plus trailing {@code |0} or {@code |1} for frozen. */
+    private static AccLineMeta parseAccountLineV2(String accPayload) {
+        return parseAccountLineV2Core(accPayload);
+    }
+
     private static AccLineMeta parseAccountLineV3(String accPayload) {
         int pFrozen = accPayload.lastIndexOf('|');
         if (pFrozen < 0) {
@@ -239,7 +290,11 @@ public final class BankPersistence {
                 core.accountType,
                 core.savingsPeriodKey,
                 core.savingsWithdrawalsThisPeriod,
-                frozen);
+                frozen,
+                Account.DEFAULT_TEST_PIN,
+                0,
+                false,
+                Account.DEFAULT_MINIMUM_BALANCE_THRESHOLD);
     }
 
     private static AccLineMeta parseAccountLineV2Core(String accPayload) {
@@ -258,7 +313,9 @@ public final class BankPersistence {
             double balance = Double.parseDouble(accPayload.substring(pBal + 1, pRight));
             String accountId = unescapeField(accPayload.substring(0, pBal));
             String ym = YearMonth.now(ZoneId.systemDefault()).toString();
-            return new AccLineMeta(accountId, balance, AccountType.CHECKING, ym, 0, false);
+            return new AccLineMeta(
+                    accountId, balance, AccountType.CHECKING, ym, 0, false,
+                    Account.DEFAULT_TEST_PIN, 0, false, Account.DEFAULT_MINIMUM_BALANCE_THRESHOLD);
         }
 
         int pCount = pRight;
@@ -277,7 +334,9 @@ public final class BankPersistence {
         }
         double balance = Double.parseDouble(accPayload.substring(pBal + 1, pSav));
         String accountId = unescapeField(accPayload.substring(0, pBal));
-        return new AccLineMeta(accountId, balance, AccountType.SAVINGS, periodKey, withdrawals, false);
+        return new AccLineMeta(
+                accountId, balance, AccountType.SAVINGS, periodKey, withdrawals, false,
+                Account.DEFAULT_TEST_PIN, 0, false, Account.DEFAULT_MINIMUM_BALANCE_THRESHOLD);
     }
 
     private static Transaction parseTxnLine(String line) {
@@ -285,7 +344,6 @@ public final class BankPersistence {
             throw new IllegalArgumentException("Invalid TXN line.");
         }
 
-        // Type, amount, and whenMs are separated by |; detail may contain | so it is last
         String payload = line.substring("TXN|".length());
 
         int p1 = payload.indexOf('|');
@@ -305,11 +363,9 @@ public final class BankPersistence {
     }
 
     private static String formatDouble(double v) {
-        // Keep decimal points predictable in the file regardless of default locale
         return String.format(Locale.US, "%s", Double.toString(v));
     }
 
-    // Account ids (ACTIVE, ACC) can contain | only if escaped; detail uses escapeDetail
     static String escapeField(String s) {
         if (s == null || s.isEmpty()) {
             return s;
@@ -339,7 +395,6 @@ public final class BankPersistence {
         return out.toString();
     }
 
-    // Transaction detail strings may include newlines or backslashes
     static String escapeDetail(String detail) {
         if (detail == null || detail.isEmpty()) {
             return "";
@@ -395,7 +450,6 @@ public final class BankPersistence {
         return out.toString();
     }
 
-    // In-memory bank plus which account the menu had selected when the file was saved
     public static final class BankSnapshot {
         private final Bank bank;
         private final String activeAccountId;

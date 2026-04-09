@@ -60,6 +60,21 @@ class BankPersistenceTest {
     }
 
     @Test
+    void saveAndLoadPreservesPinAndMinimumBalanceThreshold(@TempDir Path tempDir) throws Exception {
+        Path file = tempDir.resolve("pin-min.txt");
+
+        Bank bank = new Bank();
+        bank.addAccount(new Account("P", 100, AccountType.CHECKING, 2468));
+        bank.getAccount("P").setMinimumBalanceThreshold(30.5);
+
+        BankPersistence.save(bank, "P", file);
+
+        Account loaded = BankPersistence.load(file).getBank().getAccount("P");
+        assertTrue(loaded.authenticatePin(2468));
+        assertEquals(30.5, loaded.getMinimumBalanceThreshold(), 0.01);
+    }
+
+    @Test
     void saveAndLoadPreservesSavingsTypeAndFrozenTogether(@TempDir Path tempDir) throws Exception {
         Path file = tempDir.resolve("combo.txt");
 

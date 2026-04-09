@@ -33,6 +33,11 @@ public class Bank {
 
     public CreateAccountResult tryCreateAccount(
             String accountId, double initialBalance, AccountType accountType) {
+        return tryCreateAccount(accountId, initialBalance, accountType, Account.DEFAULT_TEST_PIN);
+    }
+
+    public CreateAccountResult tryCreateAccount(
+            String accountId, double initialBalance, AccountType accountType, int pin) {
         if (accountId == null || accountId.isBlank()) {
             return CreateAccountResult.failure("Account id cannot be empty.");
         }
@@ -49,9 +54,12 @@ public class Bank {
                             + Account.SAVINGS_MIN_OPENING_BALANCE
                             + ".");
         }
+        if (!PinLogin.isValidPin(pin)) {
+            return CreateAccountResult.failure("PIN must be exactly 4 digits (1000-9999).");
+        }
 
         try {
-            addAccount(new Account(accountId, initialBalance, accountType));
+            addAccount(new Account(accountId, initialBalance, accountType, pin));
         } catch (IllegalArgumentException e) {
             return CreateAccountResult.failure(e.getMessage());
         }
