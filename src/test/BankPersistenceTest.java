@@ -60,6 +60,24 @@ class BankPersistenceTest {
     }
 
     @Test
+    void saveAndLoadPreservesSavingsTypeAndFrozenTogether(@TempDir Path tempDir) throws Exception {
+        Path file = tempDir.resolve("combo.txt");
+
+        Bank bank = new Bank();
+        bank.addAccount(new Account("SAV", 200, AccountType.SAVINGS));
+        bank.setAccountFrozen("SAV", true);
+
+        BankPersistence.save(bank, "SAV", file);
+
+        Bank loaded = BankPersistence.load(file).getBank();
+        Account sav = loaded.getAccount("SAV");
+
+        assertEquals(AccountType.SAVINGS, sav.getAccountType());
+        assertTrue(sav.isFrozen());
+        assertEquals(200, sav.getBalance(), 0.01);
+    }
+
+    @Test
     void tryLoadMissingFileReturnsEmpty(@TempDir Path tempDir) {
         Path missing = tempDir.resolve("nope.txt");
         assertTrue(BankPersistence.tryLoad(missing).isEmpty());
