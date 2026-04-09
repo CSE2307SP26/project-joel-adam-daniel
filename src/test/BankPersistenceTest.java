@@ -9,6 +9,7 @@ import bank.Transaction;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import java.nio.file.Files;
 import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -69,9 +70,43 @@ class BankPersistenceTest {
 
         BankPersistence.save(bank, "P", file);
 
+        assertEquals("BANK_PERSIST_V4", Files.readString(file).trim().split("\\R", 2)[0]);
+
         Account loaded = BankPersistence.load(file).getBank().getAccount("P");
         assertTrue(loaded.authenticatePin(2468));
         assertEquals(30.5, loaded.getMinimumBalanceThreshold(), 0.01);
+    }
+
+    @Test
+    void saveAndLoadPreservesPinFailedAttemptsAndLock(@TempDir Path tempDir) throws Exception {
+        Path file = tempDir.resolve("pin-lock.txt");
+
+        Bank bank = new Bank();
+        bank.addAccount(new Account("L", 10, AccountType.CHECKING, 5555));
+        Account a = bank.getAccount("L");
+        assertFalse(a.authenticatePin(1111));
+        assertFalse(a.authenticatePin(2222));
+        assertEquals(1, a.getPinRemainingAttempts());
+        assertFalse(a.isPinLocked());
+
+        BankPersistence.save(bank, "L", file);
+        Account loaded = BankPersistence.load(file).getBank().getAccount("L");
+        assertEquals(1, loaded.getPinRemainingAttempts());
+        assertFalse(loaded.isPinLocked());
+        assertTrue(loaded.authenticatePin(5555));
+
+        bank = new Bank();
+        bank.addAccount(new Account("M", 10, AccountType.CHECKING, 7777));
+        Account locked = bank.getAccount("M");
+        locked.authenticatePin(0);
+        locked.authenticatePin(0);
+        locked.authenticatePin(0);
+        assertTrue(locked.isPinLocked());
+
+        BankPersistence.save(bank, "M", file);
+        Account loadedLocked = BankPersistence.load(file).getBank().getAccount("M");
+        assertTrue(loadedLocked.isPinLocked());
+        assertFalse(loadedLocked.authenticatePin(7777));
     }
 
     @Test
