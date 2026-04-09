@@ -20,11 +20,17 @@
 10. A bank operator should be able to mark an account as frozen or unfrozen for purposes of security. (Complete, Adam)
 11. A bank customer should be able to open different types of bank accounts (checking vs. saving), enforcing different rules. (Complete, Adam)
 12. A bank customer should be able to generate an account statement covering a specific time frame.
-13. A bank customer should be able to protect their bank account with a PIN.
+13. A bank customer should be able to protect their bank account with a PIN. (Complete, Joel)
+14. A bank customer should receive a warning when their balance drops below the minimum balance threshold after a withdrawal or transfer. (Complete, Joel)
+
+## What user stories were completed this iteration?
+
+- Story 13: 4-digit PIN login system. Each account is protected by a PIN set at creation. The app requires PIN entry when switching to another account. Accounts are locked after 3 failed attempts.
+- Story 14: Minimum balance warning. After any withdrawal that brings the balance below the threshold (default $25.00), the app prints a warning showing the current balance and the threshold. The threshold is configurable per account.
 
 ## What user stories do you intend to complete next iteration?
 
-- A bank customer should be able to protect their bank account with a PIN
+N/A
 
 ## Is there anything that you implemented but doesn't currently work?
 
