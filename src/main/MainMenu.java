@@ -1,6 +1,7 @@
 package main;
 
 import bank.Account;
+import bank.AccountType;
 import bank.Bank;
 import bank.BankPersistence;
 import bank.Transaction;
@@ -13,8 +14,8 @@ import java.util.Scanner;
 
 public class MainMenu {
 
-    private static final int EXIT_SELECTION = 9;
-    private static final int MAX_SELECTION = 9;
+    private static final int EXIT_SELECTION = 10;
+    private static final int MAX_SELECTION = 10;
 
     private final Bank bank;
     private String activeAccountId;
@@ -38,7 +39,7 @@ public class MainMenu {
             // No save file yet — same seed account as before persistence existed
             this.bank = new Bank();
             this.activeAccountId = "A001";
-            this.bank.addAccount(new Account(activeAccountId, 0));
+            this.bank.addAccount(new Account(activeAccountId, 0, AccountType.CHECKING));
         }
 
         this.keyboardInput = new Scanner(System.in);
@@ -46,7 +47,14 @@ public class MainMenu {
 
     public void displayOptions() {
         System.out.println("Welcome to the 237 Bank App!");
-        System.out.println("Active account: " + activeAccountId);
+        Account active = getActiveAccount();
+        System.out.println(
+                "Active account: "
+                        + activeAccountId
+                        + " ("
+                        + active.getAccountType().getLabel()
+                        + ")");
+        System.out.println(active.getAccountRulesSummary());
 
         System.out.println("1. Make a deposit");
         System.out.println("2. Make a withdrawal");
@@ -56,7 +64,8 @@ public class MainMenu {
         System.out.println("6. Switch active account");
         System.out.println("7. Close an account");
         System.out.println("8. Transfer money between accounts");
-        System.out.println("9. Exit the app");
+        System.out.println("9. View balances for all accounts");
+        System.out.println("10. Exit the app");
     }
 
     public int getUserSelection(int max) {
@@ -106,6 +115,10 @@ public class MainMenu {
                 break;
 
             case 9:
+                displayAllAccountBalances();
+                break;
+
+            case 10:
                 persistBankState();
                 System.out.println("Goodbye!");
                 break;
@@ -117,6 +130,19 @@ public class MainMenu {
 
     public void displayAccountBalance() {
         System.out.printf("Your current balance is: $%.2f%n", getActiveAccount().getBalance());
+    }
+
+    public void displayAllAccountBalances() {
+        System.out.println("Balances for all accounts:");
+        for (Account acc : bank.getAllAccounts()) {
+            String marker = acc.getAccountNumber().equals(activeAccountId) ? " (active)" : "";
+            System.out.printf(
+                    "  %s — %s: $%.2f%s%n",
+                    acc.getAccountNumber(),
+                    acc.getAccountType().getLabel(),
+                    acc.getBalance(),
+                    marker);
+        }
     }
 
     public void viewTransactionHistory() {
@@ -172,7 +198,6 @@ public class MainMenu {
         return types[sel - 1];
     }
 
-    // Called on option 9 so the next launch can tryLoad the same balances and history
     private void persistBankState() {
         try {
             BankPersistence.save(bank, activeAccountId, dataPath);
@@ -187,7 +212,7 @@ public class MainMenu {
         try {
             getActiveAccount().withdraw(amount);
         } catch (IllegalStateException e) {
-            System.out.println("Withdrawal failed. Insufficient funds.");
+            System.out.println("Withdrawal failed. " + e.getMessage());
         } catch (IllegalArgumentException e) {
             System.out.println("Withdrawal failed. " + e.getMessage());
         }
@@ -219,12 +244,55 @@ public class MainMenu {
             return;
         }
 
-        Bank.CreateAccountResult result = bank.tryCreateAccount(newId, 0);
+        System.out.println("Account type: 1. Checking  2. Savings");
+        int typeChoice = getUserSelection(2);
+        AccountType type = typeChoice == 1 ? AccountType.CHECKING : AccountType.SAVINGS;
+
+        double initial;
+        if (type == AccountType.SAVINGS) {
+            System.out.println(
+                    "Savings accounts require a minimum opening deposit of $"
+                            + Account.SAVINGS_MIN_OPENING_BALANCE
+                            + ".");
+            initial = readSavingsOpeningDeposit();
+        } else {
+            initial = readNonNegativeMoney("Initial deposit (0 is ok): ");
+        }
+
+        Bank.CreateAccountResult result = bank.tryCreateAccount(newId, initial, type);
         System.out.println(result.getMessage());
 
         if (result.isSuccess()) {
             activeAccountId = newId;
             System.out.println("Active account is now " + activeAccountId + ".");
+        }
+    }
+
+    private double readSavingsOpeningDeposit() {
+        while (true) {
+            double amount = readPositiveMoney("Opening deposit amount: ");
+            if (amount + 1e-9 >= Account.SAVINGS_MIN_OPENING_BALANCE) {
+                return amount;
+            }
+            System.out.println(
+                    "That amount is below the savings minimum. You need at least $"
+                            + Account.SAVINGS_MIN_OPENING_BALANCE
+                            + ".");
+        }
+    }
+
+    private double readNonNegativeMoney(String prompt) {
+        while (true) {
+            System.out.print(prompt);
+            String line = keyboardInput.nextLine().trim();
+            try {
+                double amount = Double.parseDouble(line);
+                if (amount >= 0 && !Double.isNaN(amount)) {
+                    return amount;
+                }
+            } catch (NumberFormatException ignored) {
+            }
+            System.out.println("Enter zero or a positive dollar amount.");
         }
     }
 
