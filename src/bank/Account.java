@@ -1,6 +1,5 @@
 package bank;
 
-import java.time.Instant;
 import java.time.YearMonth;
 import java.time.ZoneId;
 import java.util.ArrayList;
@@ -20,8 +19,9 @@ public class Account {
     private final AccountType accountType;
 
     private String savingsPeriodKey;
-
     private int savingsWithdrawalsThisPeriod;
+
+    private boolean frozen;
 
     public Account(String accountNumber, double initialBalance) {
         this(accountNumber, initialBalance, AccountType.CHECKING);
@@ -40,6 +40,7 @@ public class Account {
         this.accountType = accountType;
         this.savingsPeriodKey = currentYearMonthKey();
         this.savingsWithdrawalsThisPeriod = 0;
+        this.frozen = false;
 
         long now = System.currentTimeMillis();
         String openDetail = buildOpenDetail(initialBalance, accountType);
@@ -52,14 +53,16 @@ public class Account {
             List<Transaction> fullHistory,
             AccountType accountType,
             String savingsPeriodKey,
-            int savingsWithdrawalsThisPeriod) {
+            int savingsWithdrawalsThisPeriod,
+            boolean frozen) {
         return new Account(
                 accountNumber,
                 balance,
                 new ArrayList<>(fullHistory),
                 accountType,
                 savingsPeriodKey,
-                savingsWithdrawalsThisPeriod);
+                savingsWithdrawalsThisPeriod,
+                frozen);
     }
 
     private Account(
@@ -68,7 +71,8 @@ public class Account {
             List<Transaction> persistedHistory,
             AccountType accountType,
             String savingsPeriodKey,
-            int savingsWithdrawalsThisPeriod) {
+            int savingsWithdrawalsThisPeriod,
+            boolean frozen) {
         this.accountNumber = accountNumber;
         this.balance = balance;
         this.transactionHistory = persistedHistory;
@@ -78,6 +82,7 @@ public class Account {
                         ? savingsPeriodKey
                         : currentYearMonthKey();
         this.savingsWithdrawalsThisPeriod = savingsWithdrawalsThisPeriod;
+        this.frozen = frozen;
     }
 
     private static String buildOpenDetail(double initialBalance, AccountType accountType) {
@@ -107,7 +112,9 @@ public class Account {
         return Collections.unmodifiableList(transactionHistory);
     }
 
-    /** For savings, withdrawals remaining this calendar month; for checking, -1 means not applicable. */
+    /**
+     * For savings, withdrawals remaining this calendar month; for checking, -1 means not applicable.
+     */
     public int getSavingsWithdrawalsRemainingThisMonth() {
         if (accountType != AccountType.SAVINGS) {
             return -1;
@@ -131,7 +138,6 @@ public class Account {
                 + " remaining this month).";
     }
 
-
     public List<Transaction> getTransactionHistoryByType(Transaction.Type type) {
         List<Transaction> out = new ArrayList<>();
 
@@ -144,7 +150,22 @@ public class Account {
         return Collections.unmodifiableList(out);
     }
 
+    public boolean isFrozen() {
+        return frozen;
+    }
+
+    void setFrozen(boolean frozen) {
+        this.frozen = frozen;
+    }
+
+    private void ensureNotFrozen() {
+        if (frozen) {
+            throw new IllegalStateException("This account is frozen.");
+        }
+    }
+
     public void deposit(double amount) {
+        ensureNotFrozen();
         if (amount <= 0) {
             throw new IllegalArgumentException("Deposit amount must be positive");
         }
@@ -155,6 +176,7 @@ public class Account {
     }
 
     public void withdraw(double amount) {
+        ensureNotFrozen();
         if (amount <= 0) {
             throw new IllegalArgumentException("Withdrawal amount must be positive");
         }
@@ -170,6 +192,7 @@ public class Account {
     }
 
     public void transferIn(double amount) {
+        ensureNotFrozen();
         if (amount <= 0) {
             throw new IllegalArgumentException("Transfer amount must be positive");
         }
@@ -181,6 +204,7 @@ public class Account {
     }
 
     public void transferOut(double amount) {
+        ensureNotFrozen();
         if (amount <= 0) {
             throw new IllegalArgumentException("Transfer amount must be positive");
         }

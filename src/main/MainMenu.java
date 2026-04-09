@@ -14,8 +14,8 @@ import java.util.Scanner;
 
 public class MainMenu {
 
-    private static final int EXIT_SELECTION = 10;
-    private static final int MAX_SELECTION = 10;
+    private static final int EXIT_SELECTION = 12;
+    private static final int MAX_SELECTION = 12;
 
     private final Bank bank;
     private String activeAccountId;
@@ -48,12 +48,14 @@ public class MainMenu {
     public void displayOptions() {
         System.out.println("Welcome to the 237 Bank App!");
         Account active = getActiveAccount();
+        String frozenTag = active.isFrozen() ? " [FROZEN]" : "";
         System.out.println(
                 "Active account: "
                         + activeAccountId
                         + " ("
                         + active.getAccountType().getLabel()
-                        + ")");
+                        + ")"
+                        + frozenTag);
         System.out.println(active.getAccountRulesSummary());
 
         System.out.println("1. Make a deposit");
@@ -65,7 +67,9 @@ public class MainMenu {
         System.out.println("7. Close an account");
         System.out.println("8. Transfer money between accounts");
         System.out.println("9. View balances for all accounts");
-        System.out.println("10. Exit the app");
+        System.out.println("10. Operator — freeze account");
+        System.out.println("11. Operator — unfreeze account");
+        System.out.println("12. Exit the app");
     }
 
     public int getUserSelection(int max) {
@@ -119,6 +123,13 @@ public class MainMenu {
                 break;
 
             case 10:
+                operatorSetFrozen(true);
+                break;
+            case 11:
+                operatorSetFrozen(false);
+                break;
+
+            case 12:
                 persistBankState();
                 System.out.println("Goodbye!");
                 break;
@@ -136,11 +147,13 @@ public class MainMenu {
         System.out.println("Balances for all accounts:");
         for (Account acc : bank.getAllAccounts()) {
             String marker = acc.getAccountNumber().equals(activeAccountId) ? " (active)" : "";
+            String frozen = acc.isFrozen() ? " [FROZEN]" : "";
             System.out.printf(
-                    "  %s — %s: $%.2f%s%n",
+                    "  %s — %s: $%.2f%s%s%n",
                     acc.getAccountNumber(),
                     acc.getAccountType().getLabel(),
                     acc.getBalance(),
+                    frozen,
                     marker);
         }
     }
@@ -198,6 +211,7 @@ public class MainMenu {
         return types[sel - 1];
     }
 
+    // Called on exit so the next launch can tryLoad the same balances and history
     private void persistBankState() {
         try {
             BankPersistence.save(bank, activeAccountId, dataPath);
@@ -223,9 +237,19 @@ public class MainMenu {
 
         try {
             getActiveAccount().deposit(amount);
+        } catch (IllegalStateException e) {
+            System.out.println("Deposit failed. " + e.getMessage());
         } catch (IllegalArgumentException e) {
             System.out.println("Deposit failed. " + e.getMessage());
         }
+    }
+
+    private void operatorSetFrozen(boolean freeze) {
+        String id = promptNonEmptyAccountId("Operator — account id: ");
+        if (id == null) {
+            return;
+        }
+        System.out.println(bank.setAccountFrozen(id, freeze).getMessage());
     }
 
     private Account getActiveAccount() {

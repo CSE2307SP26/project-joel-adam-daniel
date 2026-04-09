@@ -46,6 +46,20 @@ class BankPersistenceTest {
     }
 
     @Test
+    void saveAndLoadPreservesFrozenFlag(@TempDir Path tempDir) throws Exception {
+        Path file = tempDir.resolve("frz.txt");
+        Bank bank = new Bank();
+        bank.addAccount(new Account("Z1", 10));
+        bank.setAccountFrozen("Z1", true);
+        BankPersistence.save(bank, "Z1", file);
+        Bank loaded = BankPersistence.load(file).getBank();
+        assertTrue(loaded.getAccount("Z1").isFrozen());
+        loaded.setAccountFrozen("Z1", false);
+        BankPersistence.save(loaded, "Z1", file);
+        assertFalse(BankPersistence.load(file).getBank().getAccount("Z1").isFrozen());
+    }
+
+    @Test
     void tryLoadMissingFileReturnsEmpty(@TempDir Path tempDir) {
         Path missing = tempDir.resolve("nope.txt");
         assertTrue(BankPersistence.tryLoad(missing).isEmpty());
