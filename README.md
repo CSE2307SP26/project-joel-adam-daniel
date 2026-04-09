@@ -17,8 +17,8 @@
 7. A bank customer should be able to transfer money from one account to another.  (Complete, Joel)
 8. A bank operator should be able to store bank accounts and transaction history to disk so that restarting the app does not wipe customer data. (Complete, Daniel)
 9. A bank customer should be able to filter their transaction history by type to make auditing easier. (Complete, Daniel)
-10. A bank operator should be able to mark an account as frozen or unfrozen for purposes of security.
-11. A bank customer should be able to open different types of bank accounts (checking vs. saving), enforcing different rules.
+10. A bank operator should be able to mark an account as frozen or unfrozen for purposes of security. (Complete, Adam)
+11. A bank customer should be able to open different types of bank accounts (checking vs. saving), enforcing different rules. (Complete, Adam)
 12. A bank customer should be able to generate an account statement covering a specific time frame.
 13. A bank customer should be able to protect their bank account with a PIN.
 
@@ -36,10 +36,14 @@ Run the app:
 
 ```bash
 ./runApp.sh
+
+or  bash runApp.sh
 ```
 
 Run unit tests:
 
 ```bash
-./runTests.sh
+./runTests.sh or
+
+ bash runTests.sh
 ```
