@@ -24,15 +24,19 @@
 14. A bank customer should be able to open different types of bank accounts (checking vs. saving), enforcing different rules. (Complete, Adam)
 15. A bank customer should be able to generate an account statement covering a specific time frame.
 16. A bank customer should be able to receive a warning when their balance drops below a minimum balance threshold after a withdrawal or transfer. (Complete, Joel)
+17. A bank customer should be able to schedule a recurring transfer between two of their accounts so that money moves automatically without manual action each period. (Complete, Joel)
+18. A bank customer should be able to view a spending summary for an account that breaks down total deposits vs. total withdrawals over a given time period. (Complete, Joel)
 
 ## What user stories were completed this iteration?
 
 - Story 10: 4-digit PIN at account creation, authentication when switching accounts, lockout after repeated failures; PIN state is persisted with bank data.
 - Story 16: Warning when balance falls below the account’s minimum balance threshold (default $25; configurable, including 0 to disable); threshold is persisted.
+- Story 17: Recurring transfers between accounts on a configurable interval (any number of days); due transfers run automatically on app load and can be triggered manually; state persisted across sessions.
+- Story 18: Spending summary for the active account over a user-specified date range, showing total inflows, total outflows, transaction counts, and net change.
 
 ## What user stories do you intend to complete next iteration?
 
-15, plus other stories TBD. 
+15, plus other stories TBD.
 
 ## Is there anything that you implemented but doesn't currently work?
 
