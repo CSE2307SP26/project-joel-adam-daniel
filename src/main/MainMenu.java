@@ -5,18 +5,20 @@ import bank.AccountType;
 import bank.Bank;
 import bank.BankPersistence;
 import bank.PinLogin;
+import bank.RecurringTransfer;
 import bank.Transaction;
 
 import java.io.IOException;
 import java.nio.file.Path;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.Scanner;
 
 public class MainMenu {
 
-    private static final int EXIT_SELECTION = 12;
-    private static final int MAX_SELECTION = 12;
+    private static final int EXIT_SELECTION = 13;
+    private static final int MAX_SELECTION = 13;
 
     private final Bank bank;
     private String activeAccountId;
@@ -37,6 +39,7 @@ public class MainMenu {
         if (snapshot.isPresent()) {
             this.bank = snapshot.get().getBank();
             this.activeAccountId = snapshot.get().getActiveAccountId();
+            processDueTransfersAtStartup();
         } else {
             // No save file yet — same seed account as before persistence existed
             this.bank = new Bank();
@@ -70,7 +73,8 @@ public class MainMenu {
         System.out.println("9. View balances for all accounts");
         System.out.println("10. Operator — freeze account");
         System.out.println("11. Operator — unfreeze account");
-        System.out.println("12. Exit the app");
+        System.out.println("12. Manage recurring transfers");
+        System.out.println("13. Exit the app");
     }
 
     public int getUserSelection(int max) {
@@ -131,6 +135,10 @@ public class MainMenu {
                 break;
 
             case 12:
+                manageRecurringTransfers();
+                break;
+
+            case 13:
                 persistBankState();
                 System.out.println("Goodbye!");
                 break;
@@ -484,6 +492,120 @@ public class MainMenu {
         String line = keyboardInput.nextLine().trim();
 
         return line.equalsIgnoreCase("y") || line.equalsIgnoreCase("yes");
+    }
+
+    private void processDueTransfersAtStartup() {
+        List<Bank.ProcessedRecurringTransferResult> results = bank.processDueRecurringTransfers();
+        for (Bank.ProcessedRecurringTransferResult r : results) {
+            if (r.isSuccess()) {
+                System.out.println("[Auto-transfer] " + r.getMessage());
+            } else {
+                System.out.println("[Auto-transfer failed] " + r.getRecurringTransferId() + ": " + r.getMessage());
+            }
+        }
+    }
+
+    private void manageRecurringTransfers() {
+        System.out.println("--- Recurring Transfers ---");
+        System.out.println("1. Set up a new recurring transfer");
+        System.out.println("2. List recurring transfers");
+        System.out.println("3. Cancel a recurring transfer");
+        System.out.println("4. Process due transfers now");
+        System.out.println("5. Back");
+
+        int choice = getUserSelection(5);
+        switch (choice) {
+            case 1:
+                createRecurringTransfer();
+                break;
+            case 2:
+                listRecurringTransfers();
+                break;
+            case 3:
+                cancelRecurringTransfer();
+                break;
+            case 4:
+                processRecurringTransfersNow();
+                break;
+            default:
+                break;
+        }
+    }
+
+    private void createRecurringTransfer() {
+        if (bank.getAccountCount() < 2) {
+            System.out.println("Create another account before setting up a recurring transfer.");
+            return;
+        }
+
+        String fromId = promptNonEmptyAccountId("From account id: ");
+        if (fromId == null) return;
+
+        String toId = promptNonEmptyAccountId("To account id: ");
+        if (toId == null) return;
+
+        double amount = readPositiveMoney("Transfer amount: ");
+
+        System.out.println("Repeat every how many days? (e.g. 7 for weekly, 30 for monthly)");
+        int intervalDays = readPositiveInt("Interval (days): ");
+
+        Bank.AddRecurringTransferResult result = bank.addRecurringTransfer(fromId, toId, amount, intervalDays);
+        System.out.println(result.getMessage());
+        if (result.isSuccess()) {
+            System.out.println("First transfer will run in " + intervalDays + " day(s).");
+        }
+    }
+
+    private void listRecurringTransfers() {
+        Collection<RecurringTransfer> all = bank.getAllRecurringTransfers();
+        if (all.isEmpty()) {
+            System.out.println("No recurring transfers set up.");
+            return;
+        }
+        System.out.printf("%-8s %-10s %-10s %10s %10s %s%n",
+                "ID", "From", "To", "Amount", "Every", "Status");
+        for (RecurringTransfer rt : all) {
+            System.out.printf("%-8s %-10s %-10s %10.2f %7d day(s) %s%n",
+                    rt.getId(),
+                    rt.getFromAccountId(),
+                    rt.getToAccountId(),
+                    rt.getAmount(),
+                    rt.getIntervalDays(),
+                    rt.isActive() ? "Active" : "Cancelled");
+        }
+    }
+
+    private void cancelRecurringTransfer() {
+        listRecurringTransfers();
+        String id = promptNonEmptyAccountId("Recurring transfer id to cancel: ");
+        if (id == null) return;
+        System.out.println(bank.cancelRecurringTransfer(id).getMessage());
+    }
+
+    private void processRecurringTransfersNow() {
+        List<Bank.ProcessedRecurringTransferResult> results = bank.processDueRecurringTransfers();
+        if (results.isEmpty()) {
+            System.out.println("No transfers are due right now.");
+            return;
+        }
+        for (Bank.ProcessedRecurringTransferResult r : results) {
+            System.out.println((r.isSuccess() ? "[OK] " : "[FAILED] ") + r.getMessage());
+        }
+    }
+
+    private int readPositiveInt(String prompt) {
+        while (true) {
+            System.out.print(prompt);
+            String line = keyboardInput.nextLine().trim();
+            try {
+                int value = Integer.parseInt(line);
+                if (value > 0) {
+                    return value;
+                }
+            } catch (NumberFormatException ignored) {
+            }
+            System.out.println("Enter a positive whole number.");
+        }
     }
 
     private double readPositiveMoney(String prompt) {

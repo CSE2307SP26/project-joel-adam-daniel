@@ -20,6 +20,8 @@ public final class BankPersistence {
     static final String HEADER_V3 = "BANK_PERSIST_V3";
     /** V3 ACC line plus {@code |pin|fail|lock|minBalance} at end. */
     static final String HEADER_V4 = "BANK_PERSIST_V4";
+    /** V4 plus recurring transfer (RT) lines after accounts. */
+    static final String HEADER_V5 = "BANK_PERSIST_V5";
 
     private BankPersistence() {}
 
@@ -30,7 +32,7 @@ public final class BankPersistence {
     public static void save(Bank bank, String activeAccountId, Path path) throws IOException {
         StringBuilder sb = new StringBuilder();
 
-        sb.append(HEADER_V4).append('\n');
+        sb.append(HEADER_V5).append('\n');
         sb.append("ACTIVE|").append(escapeField(activeAccountId)).append('\n');
 
         for (Account acc : bank.getAllAccounts()) {
@@ -70,6 +72,24 @@ public final class BankPersistence {
             sb.append("ENDACC\n");
         }
 
+        for (RecurringTransfer rt : bank.getAllRecurringTransfers()) {
+            sb.append("RT|")
+                    .append(escapeField(rt.getId()))
+                    .append('|')
+                    .append(escapeField(rt.getFromAccountId()))
+                    .append('|')
+                    .append(escapeField(rt.getToAccountId()))
+                    .append('|')
+                    .append(formatDouble(rt.getAmount()))
+                    .append('|')
+                    .append(rt.getIntervalDays())
+                    .append('|')
+                    .append(rt.getNextRunMs())
+                    .append('|')
+                    .append(rt.isActive() ? "1" : "0")
+                    .append('\n');
+        }
+
         Path parent = path.getParent();
         if (parent != null) {
             Files.createDirectories(parent);
@@ -99,11 +119,12 @@ public final class BankPersistence {
         }
 
         String header = lines.get(0).trim();
+        boolean formatV5 = HEADER_V5.equals(header);
         boolean formatV4 = HEADER_V4.equals(header);
         boolean formatV3 = HEADER_V3.equals(header);
         boolean formatV2 = HEADER_V2.equals(header);
         boolean formatV1 = HEADER_V1.equals(header);
-        if (!formatV4 && !formatV3 && !formatV2 && !formatV1) {
+        if (!formatV5 && !formatV4 && !formatV3 && !formatV2 && !formatV1) {
             throw new IllegalArgumentException("Missing or invalid header.");
         }
 
@@ -129,12 +150,15 @@ public final class BankPersistence {
             }
 
             if (!line.startsWith("ACC|")) {
+                if (formatV5) {
+                    break; // RT lines follow
+                }
                 throw new IllegalArgumentException("Expected ACC line, got: " + line);
             }
 
             String accPayload = line.substring("ACC|".length());
             AccLineMeta meta;
-            if (formatV4) {
+            if (formatV5 || formatV4) {
                 meta = parseAccountLineV4(accPayload);
             } else if (formatV3) {
                 meta = parseAccountLineV3(accPayload);
@@ -178,6 +202,18 @@ public final class BankPersistence {
 
         if (bank.getAccount(activeAccountId) == null) {
             activeAccountId = bank.getAllAccounts().iterator().next().getAccountNumber();
+        }
+
+        if (formatV5) {
+            while (i < lines.size()) {
+                String line = lines.get(i++).trim();
+                if (line.isEmpty()) {
+                    continue;
+                }
+                if (line.startsWith("RT|")) {
+                    bank.addRecurringTransferForPersistence(parseRtLine(line.substring("RT|".length())));
+                }
+            }
         }
 
         return new BankSnapshot(bank, activeAccountId);
@@ -337,6 +373,21 @@ public final class BankPersistence {
         return new AccLineMeta(
                 accountId, balance, AccountType.SAVINGS, periodKey, withdrawals, false,
                 Account.DEFAULT_TEST_PIN, 0, false, Account.DEFAULT_MINIMUM_BALANCE_THRESHOLD);
+    }
+
+    private static RecurringTransfer parseRtLine(String payload) {
+        String[] parts = payload.split("\\|", -1);
+        if (parts.length != 7) {
+            throw new IllegalArgumentException("Malformed RT line.");
+        }
+        String id = unescapeField(parts[0]);
+        String fromId = unescapeField(parts[1]);
+        String toId = unescapeField(parts[2]);
+        double amount = Double.parseDouble(parts[3]);
+        int intervalDays = Integer.parseInt(parts[4]);
+        long nextRunMs = Long.parseLong(parts[5]);
+        boolean active = "1".equals(parts[6]);
+        return new RecurringTransfer(id, fromId, toId, amount, intervalDays, nextRunMs, active);
     }
 
     private static Transaction parseTxnLine(String line) {
