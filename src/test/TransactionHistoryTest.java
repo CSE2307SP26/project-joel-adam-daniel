@@ -31,4 +31,19 @@ class TransactionHistoryTest {
         assertEquals(1, a.getTransactionHistoryByType(Transaction.Type.WITHDRAW).size());
         assertEquals(0, a.getTransactionHistoryByType(Transaction.Type.TRANSFER_IN).size());
     }
+
+    @Test
+    void filterByTransferTypes() {
+        Account a = new Account("T1", 100);
+        a.transferOut(10);
+        a.transferIn(5);
+        assertEquals(1, a.getTransactionHistoryByType(Transaction.Type.TRANSFER_OUT).size());
+        assertEquals(1, a.getTransactionHistoryByType(Transaction.Type.TRANSFER_IN).size());
+    }
+
+    @Test
+    void transactionTypesHaveAuditLabels() {
+        assertEquals("Deposits", Transaction.Type.DEPOSIT.getAuditLabel());
+        assertEquals("Withdrawals", Transaction.Type.WITHDRAW.getAuditLabel());
+    }
 }

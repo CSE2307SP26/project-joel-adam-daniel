@@ -62,7 +62,7 @@ public class MainMenu {
         System.out.println("1. Make a deposit");
         System.out.println("2. Make a withdrawal");
         System.out.println("3. Check account balance");
-        System.out.println("4. View transaction history");
+        System.out.println("4. View transaction history (all or filter by type for auditing)");
         System.out.println("5. Create an additional account");
         System.out.println("6. Switch active account");
         System.out.println("7. Close an account");
@@ -160,12 +160,13 @@ public class MainMenu {
     }
 
     public void viewTransactionHistory() {
-        System.out.println("1. All transactions");
-        System.out.println("2. Filter by type");
+        System.out.println("1. All transactions (chronological)");
+        System.out.println("2. Filter by type (auditing)");
 
         int mode = getUserSelection(2);
 
         List<Transaction> history;
+        String auditHeader = null;
 
         if (mode == 2) {
             Transaction.Type type = promptTransactionType();
@@ -177,9 +178,21 @@ public class MainMenu {
             history = getActiveAccount().getTransactionHistoryByType(type);
 
             if (history.isEmpty()) {
-                System.out.println("No transactions of type " + type + " for this account.");
+                System.out.println(
+                        "No "
+                                + type.getAuditLabel().toLowerCase()
+                                + " on this account for your audit.");
                 return;
             }
+            int total = getActiveAccount().getTransactionHistory().size();
+            auditHeader =
+                    "--- Audit: "
+                            + type.getAuditLabel()
+                            + " — "
+                            + history.size()
+                            + " of "
+                            + total
+                            + " transaction(s) ---";
         } else {
             history = getActiveAccount().getTransactionHistory();
 
@@ -189,6 +202,9 @@ public class MainMenu {
             }
         }
 
+        if (auditHeader != null) {
+            System.out.println(auditHeader);
+        }
         for (Transaction t : history) {
             System.out.println(t);
         }
@@ -197,9 +213,9 @@ public class MainMenu {
     private Transaction.Type promptTransactionType() {
         Transaction.Type[] types = Transaction.Type.values();
 
-        System.out.println("Select transaction type:");
+        System.out.println("Filter by type — pick one category to audit:");
         for (int i = 0; i < types.length; i++) {
-            System.out.println((i + 1) + ". " + types[i]);
+            System.out.println((i + 1) + ". " + types[i].getAuditLabel());
         }
         System.out.println((types.length + 1) + ". Cancel");
 
