@@ -163,6 +163,35 @@ public class Account {
                 + " remaining this month).";
     }
 
+    public SpendingSummary getSpendingSummary(long fromMs, long toMs) {
+        double totalDeposited = 0;
+        double totalWithdrawn = 0;
+        int depositCount = 0;
+        int withdrawalCount = 0;
+
+        for (Transaction t : transactionHistory) {
+            if (t.getWhenMs() < fromMs || t.getWhenMs() > toMs) {
+                continue;
+            }
+            switch (t.getType()) {
+                case DEPOSIT:
+                case TRANSFER_IN:
+                    totalDeposited += t.getAmount();
+                    depositCount++;
+                    break;
+                case WITHDRAW:
+                case TRANSFER_OUT:
+                    totalWithdrawn += t.getAmount();
+                    withdrawalCount++;
+                    break;
+                default:
+                    break;
+            }
+        }
+
+        return new SpendingSummary(totalDeposited, totalWithdrawn, depositCount, withdrawalCount, fromMs, toMs);
+    }
+
     public List<Transaction> getTransactionHistoryByType(Transaction.Type type) {
         List<Transaction> out = new ArrayList<>();
 

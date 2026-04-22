@@ -4,24 +4,34 @@ import bank.Account;
 import bank.AccountType;
 import bank.Bank;
 import bank.BankPersistence;
-import bank.PinLogin;
+import bank.CloseAccountResult;
+import bank.CreateAccountResult;
+import bank.ProcessedRecurringTransferResult;
+import bank.SpendingSummary;
+import bank.SpendingSummaryResult;
 import bank.Transaction;
+import bank.TransferResult;
 
 import java.io.IOException;
 import java.nio.file.Path;
+import java.time.LocalDate;
+import java.time.ZoneId;
+import java.time.format.DateTimeParseException;
 import java.util.List;
 import java.util.Optional;
 import java.util.Scanner;
 
 public class MainMenu {
 
-    private static final int EXIT_SELECTION = 12;
-    private static final int MAX_SELECTION = 12;
+    private static final int EXIT_SELECTION = 14;
+    private static final int MAX_SELECTION = 14;
 
     private final Bank bank;
     private String activeAccountId;
     private final Scanner keyboardInput;
     private final Path dataPath;
+    private final PinConsole pinConsole;
+    private final RecurringTransferConsole recurringConsole;
 
     public MainMenu() {
         this(BankPersistence.defaultPath());
@@ -31,19 +41,22 @@ public class MainMenu {
     public MainMenu(Path dataPath) {
         this.dataPath = dataPath;
         this.keyboardInput = new Scanner(System.in);
+        this.pinConsole = new PinConsole(keyboardInput);
 
         Optional<BankPersistence.BankSnapshot> snapshot = BankPersistence.tryLoad(dataPath);
 
         if (snapshot.isPresent()) {
             this.bank = snapshot.get().getBank();
             this.activeAccountId = snapshot.get().getActiveAccountId();
+            processDueTransfersAtStartup();
         } else {
             // No save file yet — same seed account as before persistence existed
             this.bank = new Bank();
             this.activeAccountId = "A001";
-            int seedPin = readFourDigitPin("Set a 4-digit PIN for account A001 (1000-9999): ");
+            int seedPin = pinConsole.readFourDigitPin("Set a 4-digit PIN for account A001 (1000-9999): ");
             this.bank.addAccount(new Account(activeAccountId, 0, AccountType.CHECKING, seedPin));
         }
+        this.recurringConsole = new RecurringTransferConsole(keyboardInput, bank, this::getUserSelection);
     }
 
     public void displayOptions() {
@@ -62,7 +75,7 @@ public class MainMenu {
         System.out.println("1. Make a deposit");
         System.out.println("2. Make a withdrawal");
         System.out.println("3. Check account balance");
-        System.out.println("4. View transaction history");
+        System.out.println("4. View transaction history (all or filter by type for auditing)");
         System.out.println("5. Create an additional account");
         System.out.println("6. Switch active account");
         System.out.println("7. Close an account");
@@ -70,7 +83,9 @@ public class MainMenu {
         System.out.println("9. View balances for all accounts");
         System.out.println("10. Operator — freeze account");
         System.out.println("11. Operator — unfreeze account");
-        System.out.println("12. Exit the app");
+        System.out.println("12. Manage recurring transfers");
+        System.out.println("13. View spending summary");
+        System.out.println("14. Exit the app");
     }
 
     public int getUserSelection(int max) {
@@ -131,6 +146,14 @@ public class MainMenu {
                 break;
 
             case 12:
+                recurringConsole.manageRecurringTransfers();
+                break;
+
+            case 13:
+                viewSpendingSummary();
+                break;
+
+            case 14:
                 persistBankState();
                 System.out.println("Goodbye!");
                 break;
@@ -160,12 +183,13 @@ public class MainMenu {
     }
 
     public void viewTransactionHistory() {
-        System.out.println("1. All transactions");
-        System.out.println("2. Filter by type");
+        System.out.println("1. All transactions (chronological)");
+        System.out.println("2. Filter by type (auditing)");
 
         int mode = getUserSelection(2);
 
         List<Transaction> history;
+        String auditHeader = null;
 
         if (mode == 2) {
             Transaction.Type type = promptTransactionType();
@@ -177,9 +201,21 @@ public class MainMenu {
             history = getActiveAccount().getTransactionHistoryByType(type);
 
             if (history.isEmpty()) {
-                System.out.println("No transactions of type " + type + " for this account.");
+                System.out.println(
+                        "No "
+                                + type.getAuditLabel().toLowerCase()
+                                + " on this account for your audit.");
                 return;
             }
+            int total = getActiveAccount().getTransactionHistory().size();
+            auditHeader =
+                    "--- Audit: "
+                            + type.getAuditLabel()
+                            + " — "
+                            + history.size()
+                            + " of "
+                            + total
+                            + " transaction(s) ---";
         } else {
             history = getActiveAccount().getTransactionHistory();
 
@@ -189,6 +225,9 @@ public class MainMenu {
             }
         }
 
+        if (auditHeader != null) {
+            System.out.println(auditHeader);
+        }
         for (Transaction t : history) {
             System.out.println(t);
         }
@@ -197,9 +236,9 @@ public class MainMenu {
     private Transaction.Type promptTransactionType() {
         Transaction.Type[] types = Transaction.Type.values();
 
-        System.out.println("Select transaction type:");
+        System.out.println("Filter by type — pick one category to audit:");
         for (int i = 0; i < types.length; i++) {
-            System.out.println((i + 1) + ". " + types[i]);
+            System.out.println((i + 1) + ". " + types[i].getAuditLabel());
         }
         System.out.println((types.length + 1) + ". Cancel");
 
@@ -284,8 +323,8 @@ public class MainMenu {
             initial = readNonNegativeMoney("Initial deposit (0 is ok): ");
         }
 
-        int pin = readFourDigitPin("Choose a 4-digit PIN for this account (1000-9999): ");
-        Bank.CreateAccountResult result = bank.tryCreateAccount(newId, initial, type, pin);
+        int pin = pinConsole.readFourDigitPin("Choose a 4-digit PIN for this account (1000-9999): ");
+        CreateAccountResult result = bank.tryCreateAccount(newId, initial, type, pin);
         System.out.println(result.getMessage());
 
         if (result.isSuccess()) {
@@ -339,7 +378,7 @@ public class MainMenu {
             return;
         }
 
-        if (!verifyPinForAccount(target)) {
+        if (!pinConsole.verifyPinForAccount(target)) {
             return;
         }
 
@@ -369,7 +408,7 @@ public class MainMenu {
         applyCloseResult(bank.closeCustomerAccount(id));
     }
 
-    private void applyCloseResult(Bank.CloseAccountResult result) {
+    private void applyCloseResult(CloseAccountResult result) {
         System.out.println(result.getMessage());
 
         if (!result.isSuccess()) {
@@ -403,7 +442,7 @@ public class MainMenu {
         }
 
         double amount = readPositiveMoney("Transfer amount: ");
-        Bank.TransferResult result = bank.transfer(fromId, toId, amount);
+        TransferResult result = bank.transfer(fromId, toId, amount);
         System.out.println(result.getMessage());
     }
 
@@ -419,52 +458,6 @@ public class MainMenu {
         }
 
         return true;
-    }
-
-    private int readFourDigitPin(String prompt) {
-        while (true) {
-            System.out.print(prompt);
-            String line = keyboardInput.nextLine().trim();
-            try {
-                int pin = Integer.parseInt(line);
-                if (PinLogin.isValidPin(pin)) {
-                    return pin;
-                }
-            } catch (NumberFormatException ignored) {
-            }
-
-            System.out.println("PIN must be exactly 4 digits in the range 1000-9999.");
-        }
-    }
-
-    private boolean verifyPinForAccount(Account acc) {
-        if (acc.isPinLocked()) {
-            System.out.println("That account is locked due to too many incorrect PIN attempts.");
-            return false;
-        }
-
-        while (true) {
-            System.out.print("Enter PIN for account " + acc.getAccountNumber() + ": ");
-            String line = keyboardInput.nextLine().trim();
-            int entered;
-            try {
-                entered = Integer.parseInt(line);
-            } catch (NumberFormatException e) {
-                System.out.println("PIN must be numeric.");
-                continue;
-            }
-
-            if (acc.authenticatePin(entered)) {
-                return true;
-            }
-
-            if (acc.isPinLocked()) {
-                System.out.println("Too many failed attempts. This account is now locked.");
-                return false;
-            }
-
-            System.out.println("Incorrect PIN. Attempts remaining: " + acc.getPinRemainingAttempts());
-        }
     }
 
     private String promptNonEmptyAccountId(String prompt) {
@@ -484,6 +477,51 @@ public class MainMenu {
         String line = keyboardInput.nextLine().trim();
 
         return line.equalsIgnoreCase("y") || line.equalsIgnoreCase("yes");
+    }
+
+    private void processDueTransfersAtStartup() {
+        List<ProcessedRecurringTransferResult> results = bank.processDueRecurringTransfers();
+        for (ProcessedRecurringTransferResult r : results) {
+            if (r.isSuccess()) {
+                System.out.println("[Auto-transfer] " + r.getMessage());
+            } else {
+                System.out.println("[Auto-transfer failed] " + r.getRecurringTransferId() + ": " + r.getMessage());
+            }
+        }
+    }
+
+    private void viewSpendingSummary() {
+        System.out.println("Spending summary for account: " + activeAccountId);
+        LocalDate from = readDate("Start date (YYYY-MM-DD): ");
+        LocalDate to = readDate("End date   (YYYY-MM-DD): ");
+
+        ZoneId zone = ZoneId.systemDefault();
+        long fromMs = from.atStartOfDay(zone).toInstant().toEpochMilli();
+        long toMs = to.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli() - 1;
+
+        SpendingSummaryResult result = bank.getSpendingSummary(activeAccountId, fromMs, toMs);
+        if (!result.isSuccess()) {
+            System.out.println(result.getMessage());
+            return;
+        }
+
+        SpendingSummary s = result.getSummary();
+        System.out.printf("Period:      %s to %s%n", from, to);
+        System.out.printf("Inflows:    +$%.2f (%d transaction(s))%n", s.getTotalDeposited(), s.getDepositCount());
+        System.out.printf("Outflows:   -$%.2f (%d transaction(s))%n", s.getTotalWithdrawn(), s.getWithdrawalCount());
+        System.out.printf("Net change:  $%.2f%n", s.getNetChange());
+    }
+
+    private LocalDate readDate(String prompt) {
+        while (true) {
+            System.out.print(prompt);
+            String line = keyboardInput.nextLine().trim();
+            try {
+                return LocalDate.parse(line);
+            } catch (DateTimeParseException ignored) {
+            }
+            System.out.println("Enter a date in YYYY-MM-DD format (e.g. 2025-01-31).");
+        }
     }
 
     private double readPositiveMoney(String prompt) {

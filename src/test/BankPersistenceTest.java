@@ -4,6 +4,7 @@ import bank.Account;
 import bank.AccountType;
 import bank.Bank;
 import bank.BankPersistence;
+import bank.RecurringTransfer;
 import bank.Transaction;
 
 import org.junit.jupiter.api.Test;
@@ -11,9 +12,12 @@ import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Collection;
+import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class BankPersistenceTest {
@@ -70,7 +74,7 @@ class BankPersistenceTest {
 
         BankPersistence.save(bank, "P", file);
 
-        assertEquals("BANK_PERSIST_V4", Files.readString(file).trim().split("\\R", 2)[0]);
+        assertEquals("BANK_PERSIST_V5", Files.readString(file).trim().split("\\R", 2)[0]);
 
         Account loaded = BankPersistence.load(file).getBank().getAccount("P");
         assertTrue(loaded.authenticatePin(2468));
@@ -155,5 +159,138 @@ class BankPersistenceTest {
             assertTrue(b.transfer("SAV", "CHK", 1).isSuccess());
         }
         assertFalse(b.transfer("SAV", "CHK", 1).isSuccess());
+    }
+
+    @Test
+    void recurringTransfersSurviveRoundTrip(@TempDir Path tempDir) throws Exception {
+        Path file = tempDir.resolve("bank.txt");
+
+        Bank bank = new Bank();
+        bank.addAccount(new Account("A", 500));
+        bank.addAccount(new Account("B", 0));
+        bank.addRecurringTransfer("A", "B", 100.0, 14);
+        String id = bank.getAllRecurringTransfers().iterator().next().getId();
+
+        BankPersistence.save(bank, "A", file);
+        Bank loaded = BankPersistence.load(file).getBank();
+
+        Collection<RecurringTransfer> rts = loaded.getAllRecurringTransfers();
+        assertEquals(1, rts.size());
+        RecurringTransfer rt = rts.iterator().next();
+        assertEquals(id, rt.getId());
+        assertEquals("A", rt.getFromAccountId());
+        assertEquals("B", rt.getToAccountId());
+        assertEquals(100.0, rt.getAmount(), 0.001);
+        assertEquals(14, rt.getIntervalDays());
+        assertTrue(rt.isActive());
+    }
+
+    @Test
+    void cancelledRecurringTransferPersistedAsCancelled(@TempDir Path tempDir) throws Exception {
+        Path file = tempDir.resolve("bank.txt");
+
+        Bank bank = new Bank();
+        bank.addAccount(new Account("A", 500));
+        bank.addAccount(new Account("B", 0));
+        String id = bank.addRecurringTransfer("A", "B", 50.0, 7).getRecurringTransferId();
+        bank.cancelRecurringTransfer(id);
+
+        BankPersistence.save(bank, "A", file);
+        Bank loaded = BankPersistence.load(file).getBank();
+
+        RecurringTransfer rt = loaded.getAllRecurringTransfers().iterator().next();
+        assertFalse(rt.isActive());
+        assertEquals(id, rt.getId());
+    }
+
+    @Test
+    void idsDoNotClashAfterLoadAndCreate(@TempDir Path tempDir) throws Exception {
+        Path file = tempDir.resolve("bank.txt");
+
+        Bank bank = new Bank();
+        bank.addAccount(new Account("A", 500));
+        bank.addAccount(new Account("B", 0));
+        bank.addRecurringTransfer("A", "B", 10.0, 7);
+
+        BankPersistence.save(bank, "A", file);
+        Bank loaded = BankPersistence.load(file).getBank();
+
+        String existingId = loaded.getAllRecurringTransfers().iterator().next().getId();
+        String newId = loaded.addRecurringTransfer("A", "B", 20.0, 14).getRecurringTransferId();
+        assertFalse(existingId.equals(newId));
+    }
+
+    @Test
+    void v4FileLoadsWithEmptyRecurringTransfers(@TempDir Path tempDir) throws Exception {
+        Path file = tempDir.resolve("v4.txt");
+        String v4Content = "BANK_PERSIST_V4\n"
+                + "ACTIVE|A001\n"
+                + "ACC|A001|100.0|CHECKING|0|1234|0|0|25.0\n"
+                + "TXN|OPEN|100.0|1000000000000|Checking — Opened with balance 100.0\n"
+                + "ENDACC\n";
+        Files.writeString(file, v4Content);
+
+        Bank loaded = BankPersistence.load(file).getBank();
+        assertTrue(loaded.getAllRecurringTransfers().isEmpty());
+        assertEquals(100.0, loaded.getAccount("A001").getBalance(), 0.001);
+    }
+
+    @Test
+    void v2CheckingFileLoads(@TempDir Path tempDir) throws Exception {
+        Path file = tempDir.resolve("v2.txt");
+        String content = "BANK_PERSIST_V2\n"
+                + "ACTIVE|A001\n"
+                + "ACC|A001|100.0|CHECKING\n"
+                + "TXN|OPEN|100.0|1700000000000|Checking\n"
+                + "ENDACC\n";
+        Files.writeString(file, content);
+
+        BankPersistence.BankSnapshot snap = BankPersistence.load(file);
+        assertEquals("A001", snap.getActiveAccountId());
+        assertEquals(AccountType.CHECKING, snap.getBank().getAccount("A001").getAccountType());
+        assertEquals(100.0, snap.getBank().getAccount("A001").getBalance(), 0.001);
+    }
+
+    @Test
+    void v3CheckingFrozenFileLoads(@TempDir Path tempDir) throws Exception {
+        Path file = tempDir.resolve("v3.txt");
+        String content = "BANK_PERSIST_V3\n"
+                + "ACTIVE|A001\n"
+                + "ACC|A001|100.0|CHECKING|1\n"
+                + "TXN|OPEN|100.0|1700000000000|Checking\n"
+                + "ENDACC\n";
+        Files.writeString(file, content);
+
+        Bank loaded = BankPersistence.load(file).getBank();
+        assertTrue(loaded.getAccount("A001").isFrozen());
+    }
+
+    @Test
+    void tryLoadInvalidHeaderReturnsEmpty(@TempDir Path tempDir) throws Exception {
+        Path file = tempDir.resolve("bad.txt");
+        Files.writeString(file, "NOT_A_BANK_FILE\nACTIVE|X\n");
+        Optional<BankPersistence.BankSnapshot> snap = BankPersistence.tryLoad(file);
+        assertTrue(snap.isEmpty());
+    }
+
+    @Test
+    void tryLoadEmptyFileReturnsEmpty(@TempDir Path tempDir) throws Exception {
+        Path file = tempDir.resolve("empty.txt");
+        Files.writeString(file, "");
+        assertTrue(BankPersistence.tryLoad(file).isEmpty());
+    }
+
+    @Test
+    void loadThrowsOnMalformedFile(@TempDir Path tempDir) throws Exception {
+        Path file = tempDir.resolve("malformed.txt");
+        Files.writeString(file, "BANK_PERSIST_V5\nACTIVE|A001\n");
+        assertThrows(Exception.class, () -> BankPersistence.load(file));
+    }
+
+    @Test
+    void loadRejectsUnknownHeader(@TempDir Path tempDir) throws Exception {
+        Path file = tempDir.resolve("hdr.txt");
+        Files.writeString(file, "BANK_PERSIST_V99\nACTIVE|A001\n");
+        assertThrows(IllegalArgumentException.class, () -> BankPersistence.load(file));
     }
 }
