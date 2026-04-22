@@ -1,7 +1,10 @@
 package bank;
 
+import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 public class Bank {
@@ -10,6 +13,8 @@ public class Bank {
     private static final double EPS = 1e-9;
 
     private final Map<String, Account> accounts = new LinkedHashMap<>();
+    private final List<RecurringTransfer> recurringTransfers = new ArrayList<>();
+    private int nextRecurringTransferId = 1;
 
     public void addAccount(Account account) {
         accounts.put(account.getAccountNumber(), account);
@@ -158,6 +163,86 @@ public class Bank {
         return CloseAccountResult.success();
     }
 
+    public AddRecurringTransferResult addRecurringTransfer(
+            String fromId, String toId, double amount, int intervalDays) {
+        if (fromId == null || fromId.isBlank() || toId == null || toId.isBlank()) {
+            return AddRecurringTransferResult.failure("From and to account numbers are required.");
+        }
+        if (fromId.equals(toId)) {
+            return AddRecurringTransferResult.failure("Cannot transfer to the same account.");
+        }
+        if (amount <= 0 || Double.isNaN(amount)) {
+            return AddRecurringTransferResult.failure("Transfer amount must be positive.");
+        }
+        if (intervalDays <= 0) {
+            return AddRecurringTransferResult.failure("Interval must be at least 1 day.");
+        }
+        if (accounts.get(fromId) == null) {
+            return AddRecurringTransferResult.failure("Source account not found: " + fromId);
+        }
+        if (accounts.get(toId) == null) {
+            return AddRecurringTransferResult.failure("Destination account not found: " + toId);
+        }
+
+        String id = "RT-" + nextRecurringTransferId++;
+        long nextRunMs = System.currentTimeMillis() + (long) intervalDays * 24 * 60 * 60 * 1000L;
+        recurringTransfers.add(new RecurringTransfer(id, fromId, toId, amount, intervalDays, nextRunMs, true));
+        return AddRecurringTransferResult.success(id);
+    }
+
+    public OperatorResult cancelRecurringTransfer(String id) {
+        if (id == null || id.isBlank()) {
+            return OperatorResult.failure("Recurring transfer id cannot be empty.");
+        }
+        for (RecurringTransfer rt : recurringTransfers) {
+            if (rt.getId().equals(id)) {
+                if (!rt.isActive()) {
+                    return OperatorResult.failure("Recurring transfer " + id + " is already cancelled.");
+                }
+                rt.cancel();
+                return OperatorResult.success("Recurring transfer " + id + " cancelled.");
+            }
+        }
+        return OperatorResult.failure("Recurring transfer not found: " + id);
+    }
+
+    public Collection<RecurringTransfer> getAllRecurringTransfers() {
+        return Collections.unmodifiableList(recurringTransfers);
+    }
+
+    public List<ProcessedRecurringTransferResult> processDueRecurringTransfers() {
+        long now = System.currentTimeMillis();
+        List<ProcessedRecurringTransferResult> results = new ArrayList<>();
+        for (RecurringTransfer rt : recurringTransfers) {
+            if (!rt.isActive() || rt.getNextRunMs() > now) {
+                continue;
+            }
+            TransferResult txResult = transfer(rt.getFromAccountId(), rt.getToAccountId(), rt.getAmount());
+            long intervalMs = (long) rt.getIntervalDays() * 24 * 60 * 60 * 1000L;
+            rt.setNextRunMs(rt.getNextRunMs() + intervalMs);
+            results.add(new ProcessedRecurringTransferResult(rt.getId(), txResult.isSuccess(), txResult.getMessage()));
+        }
+        return results;
+    }
+
+    public void addRecurringTransferForPersistence(RecurringTransfer rt) {
+        recurringTransfers.add(rt);
+        int num = parseRtIdNumber(rt.getId());
+        if (num >= nextRecurringTransferId) {
+            nextRecurringTransferId = num + 1;
+        }
+    }
+
+    private static int parseRtIdNumber(String id) {
+        if (id != null && id.startsWith("RT-")) {
+            try {
+                return Integer.parseInt(id.substring(3));
+            } catch (NumberFormatException ignored) {
+            }
+        }
+        return 0;
+    }
+
     public static final class CreateAccountResult {
         private final boolean success;
         private final String message;
@@ -251,6 +336,62 @@ public class Bank {
 
         public static OperatorResult failure(String message) {
             return new OperatorResult(false, message);
+        }
+
+        public boolean isSuccess() {
+            return success;
+        }
+
+        public String getMessage() {
+            return message;
+        }
+    }
+
+    public static final class AddRecurringTransferResult {
+        private final boolean success;
+        private final String message;
+        private final String recurringTransferId;
+
+        private AddRecurringTransferResult(boolean success, String message, String recurringTransferId) {
+            this.success = success;
+            this.message = message;
+            this.recurringTransferId = recurringTransferId;
+        }
+
+        public static AddRecurringTransferResult success(String id) {
+            return new AddRecurringTransferResult(true, "Recurring transfer " + id + " created.", id);
+        }
+
+        public static AddRecurringTransferResult failure(String message) {
+            return new AddRecurringTransferResult(false, message, null);
+        }
+
+        public boolean isSuccess() {
+            return success;
+        }
+
+        public String getMessage() {
+            return message;
+        }
+
+        public String getRecurringTransferId() {
+            return recurringTransferId;
+        }
+    }
+
+    public static final class ProcessedRecurringTransferResult {
+        private final String recurringTransferId;
+        private final boolean success;
+        private final String message;
+
+        public ProcessedRecurringTransferResult(String recurringTransferId, boolean success, String message) {
+            this.recurringTransferId = recurringTransferId;
+            this.success = success;
+            this.message = message;
+        }
+
+        public String getRecurringTransferId() {
+            return recurringTransferId;
         }
 
         public boolean isSuccess() {

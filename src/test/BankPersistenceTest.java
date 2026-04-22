@@ -70,7 +70,7 @@ class BankPersistenceTest {
 
         BankPersistence.save(bank, "P", file);
 
-        assertEquals("BANK_PERSIST_V4", Files.readString(file).trim().split("\\R", 2)[0]);
+        assertEquals("BANK_PERSIST_V5", Files.readString(file).trim().split("\\R", 2)[0]);
 
         Account loaded = BankPersistence.load(file).getBank().getAccount("P");
         assertTrue(loaded.authenticatePin(2468));
