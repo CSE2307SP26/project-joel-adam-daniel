@@ -6,10 +6,14 @@ import bank.Bank;
 import bank.BankPersistence;
 import bank.PinLogin;
 import bank.RecurringTransfer;
+import bank.SpendingSummary;
 import bank.Transaction;
 
 import java.io.IOException;
 import java.nio.file.Path;
+import java.time.LocalDate;
+import java.time.ZoneId;
+import java.time.format.DateTimeParseException;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
@@ -17,8 +21,8 @@ import java.util.Scanner;
 
 public class MainMenu {
 
-    private static final int EXIT_SELECTION = 13;
-    private static final int MAX_SELECTION = 13;
+    private static final int EXIT_SELECTION = 14;
+    private static final int MAX_SELECTION = 14;
 
     private final Bank bank;
     private String activeAccountId;
@@ -74,7 +78,8 @@ public class MainMenu {
         System.out.println("10. Operator — freeze account");
         System.out.println("11. Operator — unfreeze account");
         System.out.println("12. Manage recurring transfers");
-        System.out.println("13. Exit the app");
+        System.out.println("13. View spending summary");
+        System.out.println("14. Exit the app");
     }
 
     public int getUserSelection(int max) {
@@ -139,6 +144,10 @@ public class MainMenu {
                 break;
 
             case 13:
+                viewSpendingSummary();
+                break;
+
+            case 14:
                 persistBankState();
                 System.out.println("Goodbye!");
                 break;
@@ -621,6 +630,40 @@ public class MainMenu {
             } catch (NumberFormatException ignored) {
             }
             System.out.println("Enter a positive whole number.");
+        }
+    }
+
+    private void viewSpendingSummary() {
+        System.out.println("Spending summary for account: " + activeAccountId);
+        LocalDate from = readDate("Start date (YYYY-MM-DD): ");
+        LocalDate to = readDate("End date   (YYYY-MM-DD): ");
+
+        ZoneId zone = ZoneId.systemDefault();
+        long fromMs = from.atStartOfDay(zone).toInstant().toEpochMilli();
+        long toMs = to.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli() - 1;
+
+        Bank.SpendingSummaryResult result = bank.getSpendingSummary(activeAccountId, fromMs, toMs);
+        if (!result.isSuccess()) {
+            System.out.println(result.getMessage());
+            return;
+        }
+
+        SpendingSummary s = result.getSummary();
+        System.out.printf("Period:      %s to %s%n", from, to);
+        System.out.printf("Inflows:    +$%.2f (%d transaction(s))%n", s.getTotalDeposited(), s.getDepositCount());
+        System.out.printf("Outflows:   -$%.2f (%d transaction(s))%n", s.getTotalWithdrawn(), s.getWithdrawalCount());
+        System.out.printf("Net change:  $%.2f%n", s.getNetChange());
+    }
+
+    private LocalDate readDate(String prompt) {
+        while (true) {
+            System.out.print(prompt);
+            String line = keyboardInput.nextLine().trim();
+            try {
+                return LocalDate.parse(line);
+            } catch (DateTimeParseException ignored) {
+            }
+            System.out.println("Enter a date in YYYY-MM-DD format (e.g. 2025-01-31).");
         }
     }
 
