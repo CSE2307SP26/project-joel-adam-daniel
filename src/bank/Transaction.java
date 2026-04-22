@@ -5,11 +5,22 @@ import java.util.Date;
 public final class Transaction {
 
     public enum Type {
-        OPEN,
-        DEPOSIT,
-        WITHDRAW,
-        TRANSFER_IN,
-        TRANSFER_OUT
+        OPEN("Account opened"),
+        DEPOSIT("Deposits"),
+        WITHDRAW("Withdrawals"),
+        TRANSFER_IN("Transfers in"),
+        TRANSFER_OUT("Transfers out");
+
+        private final String auditLabel;
+
+        Type(String auditLabel) {
+            this.auditLabel = auditLabel;
+        }
+
+        /** Short label for customer-facing filters and reports. */
+        public String getAuditLabel() {
+            return auditLabel;
+        }
     }
 
     private final Type type;
