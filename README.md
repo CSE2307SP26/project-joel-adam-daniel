@@ -22,7 +22,7 @@
 12. A bank customer should be able to filter their transaction history by type to make auditing easier. (Complete, Daniel)
 13. A bank operator should be able to mark an account as frozen or unfrozen for purposes of security. (Complete, Adam)
 14. A bank customer should be able to open different types of bank accounts (checking vs. saving), enforcing different rules. (Complete, Adam)
-15. A bank customer should be able to generate an account statement covering a specific time frame.
+15. A bank customer should be able to generate an account statement covering a specific time frame. (Complete, Adam)
 16. A bank customer should be able to receive a warning when their balance drops below a minimum balance threshold after a withdrawal or transfer. (Complete, Joel)
 
 ## What user stories were completed this iteration?
