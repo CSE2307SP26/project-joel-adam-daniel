@@ -105,6 +105,43 @@ class AccountTest {
     }
 
     @Test
+    void getTransactionsBetweenIsInclusiveOnTimestamps() {
+        Account a = new Account("ST", 0);
+        injectTransaction(a, Transaction.Type.DEPOSIT, 5, T0);
+        injectTransaction(a, Transaction.Type.DEPOSIT, 7, T0 + ONE_DAY);
+        injectTransaction(a, Transaction.Type.DEPOSIT, 9, T0 + 3 * ONE_DAY);
+
+        assertEquals(1, a.getTransactionsBetween(T0, T0).size());
+        assertEquals(2, a.getTransactionsBetween(T0, T0 + ONE_DAY).size());
+        assertEquals(0, a.getTransactionsBetween(T0 + 2 * ONE_DAY, T0 + 2 * ONE_DAY).size());
+    }
+
+    @Test
+    void administratorFeeRecordsFeeTransaction() {
+        Account a = new Account("AF", 50);
+        a.setMinimumBalanceThreshold(0);
+        a.applyAdministratorFee(12.5, "service charge");
+        assertEquals(37.5, a.getBalance(), 0.001);
+        assertEquals(1, a.getTransactionHistoryByType(Transaction.Type.FEE).size());
+        assertEquals(12.5, a.getTransactionHistoryByType(Transaction.Type.FEE).get(0).getAmount(), 0.001);
+    }
+
+    @Test
+    void administratorInterestRecordsInterestTransaction() {
+        Account a = new Account("AI", 40);
+        a.applyAdministratorInterest(2, "promotional");
+        assertEquals(42, a.getBalance(), 0.001);
+        assertEquals(1, a.getTransactionHistoryByType(Transaction.Type.INTEREST).size());
+    }
+
+    @Test
+    void administratorFeeRejectsNonPositiveAmount() {
+        Account a = new Account("AF2", 10);
+        assertThrows(IllegalArgumentException.class, () -> a.applyAdministratorFee(0, ""));
+        assertThrows(IllegalArgumentException.class, () -> a.applyAdministratorFee(-1, ""));
+    }
+
+    @Test
     void checkingAccountRulesSummaryMentionsNoMonthlyLimit() {
         Account c = new Account("R1", 0, AccountType.CHECKING);
         String s = c.getAccountRulesSummary();

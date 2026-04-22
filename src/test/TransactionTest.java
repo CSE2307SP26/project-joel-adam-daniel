@@ -16,6 +16,8 @@ class TransactionTest {
         assertEquals("Withdrawals", Transaction.Type.WITHDRAW.getAuditLabel());
         assertEquals("Transfers in", Transaction.Type.TRANSFER_IN.getAuditLabel());
         assertEquals("Transfers out", Transaction.Type.TRANSFER_OUT.getAuditLabel());
+        assertEquals("Administrator fees", Transaction.Type.FEE.getAuditLabel());
+        assertEquals("Interest credits", Transaction.Type.INTEREST.getAuditLabel());
         assertEquals("Account opened", Transaction.Type.OPEN.getAuditLabel());
     }
 

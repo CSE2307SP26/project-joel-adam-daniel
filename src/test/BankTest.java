@@ -565,5 +565,112 @@ class BankTest {
             assertTrue(r.isSuccess());
             assertEquals(80.0, r.getSummary().getTotalDeposited(), 0.001);
         }
+
+        @Test
+        void spendingSummaryIncludesInterestAndFees() {
+            Bank bank = new Bank();
+            bank.addAccount(new Account("Y", 200));
+            bank.getAccount("Y").applyAdministratorInterest(5, "promo");
+            bank.getAccount("Y").applyAdministratorFee(2, "monthly");
+
+            SpendingSummaryResult r = bank.getSpendingSummary("Y", 0, Long.MAX_VALUE);
+
+            assertTrue(r.isSuccess());
+            assertEquals(5.0, r.getSummary().getTotalDeposited(), 0.001);
+            assertEquals(2.0, r.getSummary().getTotalWithdrawn(), 0.001);
+        }
+    }
+
+    @Nested
+    class AdministratorFeeAndInterestTests {
+
+        @Test
+        void collectFeeReducesBalance() {
+            Bank bank = new Bank();
+            bank.addAccount(new Account("F1", 100));
+            assertTrue(bank.collectFee("F1", 15).isSuccess());
+            assertEquals(85.0, bank.getAccount("F1").getBalance(), 0.001);
+        }
+
+        @Test
+        void collectFeeInsufficientFunds() {
+            Bank bank = new Bank();
+            bank.addAccount(new Account("F2", 10));
+            assertFalse(bank.collectFee("F2", 11).isSuccess());
+        }
+
+        @Test
+        void collectFeeUnknownAccount() {
+            Bank bank = new Bank();
+            bank.addAccount(new Account("F3", 10));
+            assertFalse(bank.collectFee("NONE", 1).isSuccess());
+        }
+
+        @Test
+        void collectFeeBlankId() {
+            Bank bank = new Bank();
+            assertFalse(bank.collectFee("", 1).isSuccess());
+        }
+
+        @Test
+        void collectFeeNonPositiveAmount() {
+            Bank bank = new Bank();
+            bank.addAccount(new Account("F4", 50));
+            assertFalse(bank.collectFee("F4", 0).isSuccess());
+            assertFalse(bank.collectFee("F4", -1).isSuccess());
+        }
+
+        @Test
+        void collectFeeFailsWhenAccountFrozen() {
+            Bank bank = new Bank();
+            bank.addAccount(new Account("F5", 50));
+            bank.setAccountFrozen("F5", true);
+            assertFalse(bank.collectFee("F5", 5).isSuccess());
+        }
+
+        @Test
+        void collectFeeDoesNotConsumeSavingsWithdrawalQuota() {
+            Bank bank = new Bank();
+            Account s = new Account("SAV", 500, AccountType.SAVINGS);
+            s.setMinimumBalanceThreshold(0);
+            bank.addAccount(s);
+            for (int i = 0; i < Account.SAVINGS_MAX_WITHDRAWALS_PER_MONTH; i++) {
+                s.withdraw(1);
+            }
+            assertTrue(bank.collectFee("SAV", 10).isSuccess());
+            assertEquals(
+                    500 - Account.SAVINGS_MAX_WITHDRAWALS_PER_MONTH - 10,
+                    bank.getAccount("SAV").getBalance(),
+                    0.01);
+        }
+
+        @Test
+        void applyInterestIncreasesBalance() {
+            Bank bank = new Bank();
+            bank.addAccount(new Account("I1", 20));
+            assertTrue(bank.applyInterest("I1", 3.5).isSuccess());
+            assertEquals(23.5, bank.getAccount("I1").getBalance(), 0.001);
+        }
+
+        @Test
+        void applyInterestUnknownAccount() {
+            Bank bank = new Bank();
+            assertFalse(bank.applyInterest("MISS", 1).isSuccess());
+        }
+
+        @Test
+        void applyInterestNonPositiveAmount() {
+            Bank bank = new Bank();
+            bank.addAccount(new Account("I2", 10));
+            assertFalse(bank.applyInterest("I2", 0).isSuccess());
+        }
+
+        @Test
+        void applyInterestFailsWhenFrozen() {
+            Bank bank = new Bank();
+            bank.addAccount(new Account("I3", 100));
+            bank.setAccountFrozen("I3", true);
+            assertFalse(bank.applyInterest("I3", 5).isSuccess());
+        }
     }
 }

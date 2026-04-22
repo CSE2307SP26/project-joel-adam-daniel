@@ -23,8 +23,8 @@ import java.util.Scanner;
 
 public class MainMenu {
 
-    private static final int EXIT_SELECTION = 14;
-    private static final int MAX_SELECTION = 14;
+    private static final int EXIT_SELECTION = 17;
+    private static final int MAX_SELECTION = 17;
 
     private final Bank bank;
     private String activeAccountId;
@@ -85,7 +85,10 @@ public class MainMenu {
         System.out.println("11. Operator — unfreeze account");
         System.out.println("12. Manage recurring transfers");
         System.out.println("13. View spending summary");
-        System.out.println("14. Exit the app");
+        System.out.println("14. Account statement (by date range)");
+        System.out.println("15. Operator — collect fee from account");
+        System.out.println("16. Operator — apply interest to account");
+        System.out.println("17. Exit the app");
     }
 
     public int getUserSelection(int max) {
@@ -154,6 +157,18 @@ public class MainMenu {
                 break;
 
             case 14:
+                viewAccountStatement();
+                break;
+
+            case 15:
+                operatorCollectFee();
+                break;
+
+            case 16:
+                operatorApplyInterest();
+                break;
+
+            case 17:
                 persistBankState();
                 System.out.println("Goodbye!");
                 break;
@@ -488,6 +503,58 @@ public class MainMenu {
                 System.out.println("[Auto-transfer failed] " + r.getRecurringTransferId() + ": " + r.getMessage());
             }
         }
+    }
+
+    private void viewAccountStatement() {
+        System.out.println("Account statement for: " + activeAccountId);
+        LocalDate from = readDate("Statement start date (YYYY-MM-DD): ");
+        LocalDate to = readDate("Statement end date   (YYYY-MM-DD): ");
+        if (from.isAfter(to)) {
+            System.out.println("Start date must not be after end date.");
+            return;
+        }
+
+        ZoneId zone = ZoneId.systemDefault();
+        long fromMs = from.atStartOfDay(zone).toInstant().toEpochMilli();
+        long toMs = to.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli() - 1;
+
+        Account acc = getActiveAccount();
+        List<Transaction> rows = acc.getTransactionsBetween(fromMs, toMs);
+        if (rows.isEmpty()) {
+            System.out.println("No transactions in this period.");
+            return;
+        }
+
+        System.out.println("--- Statement ---");
+        System.out.printf(
+                "Account %s (%s)%nPeriod: %s to %s (inclusive)%nEnding balance: $%.2f%n%n",
+                acc.getAccountNumber(),
+                acc.getAccountType().getLabel(),
+                from,
+                to,
+                acc.getBalance());
+        for (Transaction t : rows) {
+            System.out.println(t);
+        }
+        System.out.println("--- End of statement ---");
+    }
+
+    private void operatorCollectFee() {
+        String id = promptNonEmptyAccountId("Operator — account id to debit fee: ");
+        if (id == null) {
+            return;
+        }
+        double amount = readPositiveMoney("Fee amount: ");
+        System.out.println(bank.collectFee(id, amount).getMessage());
+    }
+
+    private void operatorApplyInterest() {
+        String id = promptNonEmptyAccountId("Operator — account id to credit interest: ");
+        if (id == null) {
+            return;
+        }
+        double amount = readPositiveMoney("Interest amount: ");
+        System.out.println(bank.applyInterest(id, amount).getMessage());
     }
 
     private void viewSpendingSummary() {

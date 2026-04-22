@@ -256,4 +256,48 @@ public class Bank {
         }
         return SpendingSummaryResult.success(acc.getSpendingSummary(fromMs, toMs));
     }
+
+    public OperatorResult collectFee(String accountNumber, double amount) {
+        if (accountNumber == null || accountNumber.isBlank()) {
+            return OperatorResult.failure("Account id cannot be empty.");
+        }
+        if (amount <= 0 || Double.isNaN(amount)) {
+            return OperatorResult.failure("Fee amount must be positive.");
+        }
+        Account acc = accounts.get(accountNumber);
+        if (acc == null) {
+            return OperatorResult.failure("Account not found: " + accountNumber);
+        }
+        try {
+            acc.applyAdministratorFee(amount, "Administrator fee");
+        } catch (IllegalStateException e) {
+            return OperatorResult.failure(e.getMessage());
+        } catch (IllegalArgumentException e) {
+            return OperatorResult.failure(e.getMessage());
+        }
+        return OperatorResult.success(
+                "Collected fee of $" + amount + " from account " + accountNumber + ".");
+    }
+
+    public OperatorResult applyInterest(String accountNumber, double amount) {
+        if (accountNumber == null || accountNumber.isBlank()) {
+            return OperatorResult.failure("Account id cannot be empty.");
+        }
+        if (amount <= 0 || Double.isNaN(amount)) {
+            return OperatorResult.failure("Interest amount must be positive.");
+        }
+        Account acc = accounts.get(accountNumber);
+        if (acc == null) {
+            return OperatorResult.failure("Account not found: " + accountNumber);
+        }
+        try {
+            acc.applyAdministratorInterest(amount, "Interest credit");
+        } catch (IllegalStateException e) {
+            return OperatorResult.failure(e.getMessage());
+        } catch (IllegalArgumentException e) {
+            return OperatorResult.failure(e.getMessage());
+        }
+        return OperatorResult.success(
+                "Applied interest of $" + amount + " to account " + accountNumber + ".");
+    }
 }

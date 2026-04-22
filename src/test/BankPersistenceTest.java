@@ -293,4 +293,20 @@ class BankPersistenceTest {
         Files.writeString(file, "BANK_PERSIST_V99\nACTIVE|A001\n");
         assertThrows(IllegalArgumentException.class, () -> BankPersistence.load(file));
     }
+
+    @Test
+    void saveAndLoadPreservesFeeAndInterestTransactions(@TempDir Path tempDir) throws Exception {
+        Path file = tempDir.resolve("fi.txt");
+        Bank bank = new Bank();
+        bank.addAccount(new Account("Z", 200, AccountType.CHECKING));
+        bank.getAccount("Z").applyAdministratorFee(5, "fee note");
+        bank.getAccount("Z").applyAdministratorInterest(3, "interest note");
+
+        BankPersistence.save(bank, "Z", file);
+        Account loaded = BankPersistence.load(file).getBank().getAccount("Z");
+
+        assertEquals(198, loaded.getBalance(), 0.001);
+        assertEquals(1, loaded.getTransactionHistoryByType(Transaction.Type.FEE).size());
+        assertEquals(1, loaded.getTransactionHistoryByType(Transaction.Type.INTEREST).size());
+    }
 }

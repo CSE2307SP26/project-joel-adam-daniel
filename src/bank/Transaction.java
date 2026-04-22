@@ -9,7 +9,9 @@ public final class Transaction {
         DEPOSIT("Deposits"),
         WITHDRAW("Withdrawals"),
         TRANSFER_IN("Transfers in"),
-        TRANSFER_OUT("Transfers out");
+        TRANSFER_OUT("Transfers out"),
+        FEE("Administrator fees"),
+        INTEREST("Interest credits");
 
         private final String auditLabel;
 
