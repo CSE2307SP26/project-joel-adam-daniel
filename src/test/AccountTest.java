@@ -13,6 +13,8 @@ import org.junit.jupiter.api.Test;
 
 import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
+import java.util.Collections;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -272,6 +274,45 @@ class AccountTest {
         assertThrows(IllegalStateException.class, () -> a.withdraw(1));
         assertThrows(IllegalStateException.class, () -> a.transferIn(1));
         assertThrows(IllegalStateException.class, () -> a.transferOut(1));
+    }
+
+    @Test
+    void frozenBlocksAdministratorFeeAndInterest() {
+        Bank bank = new Bank();
+        bank.addAccount(new Account("F2", 100));
+        bank.setAccountFrozen("F2", true);
+        Account a = bank.getAccount("F2");
+        assertThrows(IllegalStateException.class, () -> a.applyAdministratorFee(1, "fee"));
+        assertThrows(IllegalStateException.class, () -> a.applyAdministratorInterest(1, "int"));
+    }
+
+    @Test
+    void fromPersistedRejectsNegativeMinimumBalanceThreshold() {
+        List<Transaction> open =
+                Collections.singletonList(
+                        new Transaction(Transaction.Type.OPEN, 0, 1L, "Checking — Account opened"));
+        assertThrows(
+                IllegalArgumentException.class,
+                () ->
+                        Account.fromPersisted(
+                                "Z",
+                                0,
+                                open,
+                                AccountType.CHECKING,
+                                "2024-01",
+                                0,
+                                false,
+                                Account.DEFAULT_TEST_PIN,
+                                0,
+                                false,
+                                -0.01));
+    }
+
+    @Test
+    void administratorFeeInsufficientFundsThrows() {
+        Account a = new Account("AF3", 5);
+        a.setMinimumBalanceThreshold(0);
+        assertThrows(IllegalStateException.class, () -> a.applyAdministratorFee(6, "x"));
     }
 
     /**

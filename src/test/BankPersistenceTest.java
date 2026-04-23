@@ -12,11 +12,14 @@ import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -309,4 +312,84 @@ class BankPersistenceTest {
         assertEquals(1, loaded.getTransactionHistoryByType(Transaction.Type.FEE).size());
         assertEquals(1, loaded.getTransactionHistoryByType(Transaction.Type.INTEREST).size());
     }
+
+    @Test
+    void accountIdContainingPipeSurvivesRoundTrip(@TempDir Path tempDir) throws Exception {
+        Path file = tempDir.resolve("pipe-id.txt");
+        Bank bank = new Bank();
+        assertTrue(bank.tryCreateAccount("X|Y", 10, AccountType.CHECKING).isSuccess());
+
+        BankPersistence.save(bank, "X|Y", file);
+        Bank loaded = BankPersistence.load(file).getBank();
+
+        assertNotNull(loaded.getAccount("X|Y"));
+        assertEquals(10, loaded.getAccount("X|Y").getBalance(), 0.001);
+    }
+
+    @Test
+    void transactionDetailWithNewlinesSurvivesRoundTrip(@TempDir Path tempDir) throws Exception {
+        Path file = tempDir.resolve("multiline.txt");
+        long when = 1_700_000_000_000L;
+        List<Transaction> history = new ArrayList<>();
+        history.add(new Transaction(Transaction.Type.OPEN, 100, when, "Checking — opened"));
+        history.add(new Transaction(Transaction.Type.FEE, 2, when + 1, "Line1\nLine2"));
+
+        Account acc =
+                Account.fromPersisted(
+                        "M1",
+                        98,
+                        history,
+                        AccountType.CHECKING,
+                        "2024-01",
+                        0,
+                        false,
+                        Account.DEFAULT_TEST_PIN,
+                        0,
+                        false,
+                        25.0);
+        Bank bank = new Bank();
+        bank.addAccount(acc);
+
+        BankPersistence.save(bank, "M1", file);
+        Account loaded = BankPersistence.load(file).getBank().getAccount("M1");
+        String detail = loaded.getTransactionHistoryByType(Transaction.Type.FEE).get(0).getDetail();
+
+        assertEquals("Line1\nLine2", detail);
+    }
+
+    @Test
+    void activeAccountFallsBackWhenIdMissingFromFile(@TempDir Path tempDir) throws Exception {
+        Path file = tempDir.resolve("active-fallback.txt");
+        String v5 =
+                "BANK_PERSIST_V5\n"
+                        + "ACTIVE|MISSING\n"
+                        + "ACC|FIRST|0.0|CHECKING|0|1234|0|0|25.0\n"
+                        + "TXN|OPEN|0.0|1700000000000|Checking — Account opened\n"
+                        + "ENDACC\n"
+                        + "ACC|SECOND|5.0|CHECKING|0|1234|0|0|25.0\n"
+                        + "TXN|OPEN|5.0|1700000000001|Checking — Opened with balance 5.0\n"
+                        + "ENDACC\n";
+        Files.writeString(file, v5);
+
+        BankPersistence.BankSnapshot snap = BankPersistence.load(file);
+        assertEquals("FIRST", snap.getActiveAccountId());
+        assertEquals(2, snap.getBank().getAccountCount());
+    }
+
+    @Test
+    void v1LegacyFileLoadsAsChecking(@TempDir Path tempDir) throws Exception {
+        Path file = tempDir.resolve("v1.txt");
+        String content =
+                "BANK_PERSIST_V1\n"
+                        + "ACTIVE|OLD\n"
+                        + "ACC|OLD|42.5\n"
+                        + "TXN|OPEN|42.5|1700000000000|legacy\n"
+                        + "ENDACC\n";
+        Files.writeString(file, content);
+
+        Bank loaded = BankPersistence.load(file).getBank();
+        assertEquals(AccountType.CHECKING, loaded.getAccount("OLD").getAccountType());
+        assertEquals(42.5, loaded.getAccount("OLD").getBalance(), 0.001);
+    }
 }
+
