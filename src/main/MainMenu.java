@@ -4,30 +4,34 @@ import bank.Account;
 import bank.AccountType;
 import bank.Bank;
 import bank.BankPersistence;
-import bank.PinLogin;
-import bank.RecurringTransfer;
+import bank.CloseAccountResult;
+import bank.CreateAccountResult;
+import bank.ProcessedRecurringTransferResult;
 import bank.SpendingSummary;
+import bank.SpendingSummaryResult;
 import bank.Transaction;
+import bank.TransferResult;
 
 import java.io.IOException;
 import java.nio.file.Path;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.format.DateTimeParseException;
-import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.Scanner;
 
 public class MainMenu {
 
-    private static final int EXIT_SELECTION = 14;
-    private static final int MAX_SELECTION = 14;
+    private static final int EXIT_SELECTION = 17;
+    private static final int MAX_SELECTION = 17;
 
     private final Bank bank;
     private String activeAccountId;
     private final Scanner keyboardInput;
     private final Path dataPath;
+    private final PinConsole pinConsole;
+    private final RecurringTransferConsole recurringConsole;
 
     public MainMenu() {
         this(BankPersistence.defaultPath());
@@ -37,6 +41,7 @@ public class MainMenu {
     public MainMenu(Path dataPath) {
         this.dataPath = dataPath;
         this.keyboardInput = new Scanner(System.in);
+        this.pinConsole = new PinConsole(keyboardInput);
 
         Optional<BankPersistence.BankSnapshot> snapshot = BankPersistence.tryLoad(dataPath);
 
@@ -48,9 +53,10 @@ public class MainMenu {
             // No save file yet — same seed account as before persistence existed
             this.bank = new Bank();
             this.activeAccountId = "A001";
-            int seedPin = readFourDigitPin("Set a 4-digit PIN for account A001 (1000-9999): ");
+            int seedPin = pinConsole.readFourDigitPin("Set a 4-digit PIN for account A001 (1000-9999): ");
             this.bank.addAccount(new Account(activeAccountId, 0, AccountType.CHECKING, seedPin));
         }
+        this.recurringConsole = new RecurringTransferConsole(keyboardInput, bank, this::getUserSelection);
     }
 
     public void displayOptions() {
@@ -79,7 +85,10 @@ public class MainMenu {
         System.out.println("11. Operator — unfreeze account");
         System.out.println("12. Manage recurring transfers");
         System.out.println("13. View spending summary");
-        System.out.println("14. Exit the app");
+        System.out.println("14. Account statement (by date range)");
+        System.out.println("15. Operator — collect fee from account");
+        System.out.println("16. Operator — apply interest to account");
+        System.out.println("17. Exit the app");
     }
 
     public int getUserSelection(int max) {
@@ -140,7 +149,7 @@ public class MainMenu {
                 break;
 
             case 12:
-                manageRecurringTransfers();
+                recurringConsole.manageRecurringTransfers();
                 break;
 
             case 13:
@@ -148,6 +157,18 @@ public class MainMenu {
                 break;
 
             case 14:
+                viewAccountStatement();
+                break;
+
+            case 15:
+                operatorCollectFee();
+                break;
+
+            case 16:
+                operatorApplyInterest();
+                break;
+
+            case 17:
                 persistBankState();
                 System.out.println("Goodbye!");
                 break;
@@ -317,8 +338,8 @@ public class MainMenu {
             initial = readNonNegativeMoney("Initial deposit (0 is ok): ");
         }
 
-        int pin = readFourDigitPin("Choose a 4-digit PIN for this account (1000-9999): ");
-        Bank.CreateAccountResult result = bank.tryCreateAccount(newId, initial, type, pin);
+        int pin = pinConsole.readFourDigitPin("Choose a 4-digit PIN for this account (1000-9999): ");
+        CreateAccountResult result = bank.tryCreateAccount(newId, initial, type, pin);
         System.out.println(result.getMessage());
 
         if (result.isSuccess()) {
@@ -372,7 +393,7 @@ public class MainMenu {
             return;
         }
 
-        if (!verifyPinForAccount(target)) {
+        if (!pinConsole.verifyPinForAccount(target)) {
             return;
         }
 
@@ -402,7 +423,7 @@ public class MainMenu {
         applyCloseResult(bank.closeCustomerAccount(id));
     }
 
-    private void applyCloseResult(Bank.CloseAccountResult result) {
+    private void applyCloseResult(CloseAccountResult result) {
         System.out.println(result.getMessage());
 
         if (!result.isSuccess()) {
@@ -436,7 +457,7 @@ public class MainMenu {
         }
 
         double amount = readPositiveMoney("Transfer amount: ");
-        Bank.TransferResult result = bank.transfer(fromId, toId, amount);
+        TransferResult result = bank.transfer(fromId, toId, amount);
         System.out.println(result.getMessage());
     }
 
@@ -452,52 +473,6 @@ public class MainMenu {
         }
 
         return true;
-    }
-
-    private int readFourDigitPin(String prompt) {
-        while (true) {
-            System.out.print(prompt);
-            String line = keyboardInput.nextLine().trim();
-            try {
-                int pin = Integer.parseInt(line);
-                if (PinLogin.isValidPin(pin)) {
-                    return pin;
-                }
-            } catch (NumberFormatException ignored) {
-            }
-
-            System.out.println("PIN must be exactly 4 digits in the range 1000-9999.");
-        }
-    }
-
-    private boolean verifyPinForAccount(Account acc) {
-        if (acc.isPinLocked()) {
-            System.out.println("That account is locked due to too many incorrect PIN attempts.");
-            return false;
-        }
-
-        while (true) {
-            System.out.print("Enter PIN for account " + acc.getAccountNumber() + ": ");
-            String line = keyboardInput.nextLine().trim();
-            int entered;
-            try {
-                entered = Integer.parseInt(line);
-            } catch (NumberFormatException e) {
-                System.out.println("PIN must be numeric.");
-                continue;
-            }
-
-            if (acc.authenticatePin(entered)) {
-                return true;
-            }
-
-            if (acc.isPinLocked()) {
-                System.out.println("Too many failed attempts. This account is now locked.");
-                return false;
-            }
-
-            System.out.println("Incorrect PIN. Attempts remaining: " + acc.getPinRemainingAttempts());
-        }
     }
 
     private String promptNonEmptyAccountId(String prompt) {
@@ -520,8 +495,8 @@ public class MainMenu {
     }
 
     private void processDueTransfersAtStartup() {
-        List<Bank.ProcessedRecurringTransferResult> results = bank.processDueRecurringTransfers();
-        for (Bank.ProcessedRecurringTransferResult r : results) {
+        List<ProcessedRecurringTransferResult> results = bank.processDueRecurringTransfers();
+        for (ProcessedRecurringTransferResult r : results) {
             if (r.isSuccess()) {
                 System.out.println("[Auto-transfer] " + r.getMessage());
             } else {
@@ -530,107 +505,56 @@ public class MainMenu {
         }
     }
 
-    private void manageRecurringTransfers() {
-        System.out.println("--- Recurring Transfers ---");
-        System.out.println("1. Set up a new recurring transfer");
-        System.out.println("2. List recurring transfers");
-        System.out.println("3. Cancel a recurring transfer");
-        System.out.println("4. Process due transfers now");
-        System.out.println("5. Back");
-
-        int choice = getUserSelection(5);
-        switch (choice) {
-            case 1:
-                createRecurringTransfer();
-                break;
-            case 2:
-                listRecurringTransfers();
-                break;
-            case 3:
-                cancelRecurringTransfer();
-                break;
-            case 4:
-                processRecurringTransfersNow();
-                break;
-            default:
-                break;
-        }
-    }
-
-    private void createRecurringTransfer() {
-        if (bank.getAccountCount() < 2) {
-            System.out.println("Create another account before setting up a recurring transfer.");
+    private void viewAccountStatement() {
+        System.out.println("Account statement for: " + activeAccountId);
+        LocalDate from = readDate("Statement start date (YYYY-MM-DD): ");
+        LocalDate to = readDate("Statement end date   (YYYY-MM-DD): ");
+        if (from.isAfter(to)) {
+            System.out.println("Start date must not be after end date.");
             return;
         }
 
-        String fromId = promptNonEmptyAccountId("From account id: ");
-        if (fromId == null) return;
+        ZoneId zone = ZoneId.systemDefault();
+        long fromMs = from.atStartOfDay(zone).toInstant().toEpochMilli();
+        long toMs = to.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli() - 1;
 
-        String toId = promptNonEmptyAccountId("To account id: ");
-        if (toId == null) return;
-
-        double amount = readPositiveMoney("Transfer amount: ");
-
-        System.out.println("Repeat every how many days? (e.g. 7 for weekly, 30 for monthly)");
-        int intervalDays = readPositiveInt("Interval (days): ");
-
-        Bank.AddRecurringTransferResult result = bank.addRecurringTransfer(fromId, toId, amount, intervalDays);
-        System.out.println(result.getMessage());
-        if (result.isSuccess()) {
-            System.out.println("First transfer will run in " + intervalDays + " day(s).");
-        }
-    }
-
-    private void listRecurringTransfers() {
-        Collection<RecurringTransfer> all = bank.getAllRecurringTransfers();
-        if (all.isEmpty()) {
-            System.out.println("No recurring transfers set up.");
+        Account acc = getActiveAccount();
+        List<Transaction> rows = acc.getTransactionsBetween(fromMs, toMs);
+        if (rows.isEmpty()) {
+            System.out.println("No transactions in this period.");
             return;
         }
-        System.out.printf("%-8s %-10s %-10s %10s %10s %s%n",
-                "ID", "From", "To", "Amount", "Every", "Status");
-        for (RecurringTransfer rt : all) {
-            System.out.printf("%-8s %-10s %-10s %10.2f %7d day(s) %s%n",
-                    rt.getId(),
-                    rt.getFromAccountId(),
-                    rt.getToAccountId(),
-                    rt.getAmount(),
-                    rt.getIntervalDays(),
-                    rt.isActive() ? "Active" : "Cancelled");
+
+        System.out.println("--- Statement ---");
+        System.out.printf(
+                "Account %s (%s)%nPeriod: %s to %s (inclusive)%nEnding balance: $%.2f%n%n",
+                acc.getAccountNumber(),
+                acc.getAccountType().getLabel(),
+                from,
+                to,
+                acc.getBalance());
+        for (Transaction t : rows) {
+            System.out.println(t);
         }
+        System.out.println("--- End of statement ---");
     }
 
-    private void cancelRecurringTransfer() {
-        listRecurringTransfers();
-        String id = promptNonEmptyAccountId("Recurring transfer id to cancel: ");
-        if (id == null) return;
-        System.out.println(bank.cancelRecurringTransfer(id).getMessage());
-    }
-
-    private void processRecurringTransfersNow() {
-        List<Bank.ProcessedRecurringTransferResult> results = bank.processDueRecurringTransfers();
-        if (results.isEmpty()) {
-            System.out.println("No transfers are due right now.");
+    private void operatorCollectFee() {
+        String id = promptNonEmptyAccountId("Operator — account id to debit fee: ");
+        if (id == null) {
             return;
         }
-        for (Bank.ProcessedRecurringTransferResult r : results) {
-            System.out.println((r.isSuccess() ? "[OK] " : "[FAILED] ") + r.getMessage());
-        }
+        double amount = readPositiveMoney("Fee amount: ");
+        System.out.println(bank.collectFee(id, amount).getMessage());
     }
 
-    private int readPositiveInt(String prompt) {
-        while (true) {
-            System.out.print(prompt);
-            String line = keyboardInput.nextLine().trim();
-            try {
-                int value = Integer.parseInt(line);
-                if (value > 0) {
-                    return value;
-                }
-            } catch (NumberFormatException ignored) {
-            }
-            System.out.println("Enter a positive whole number.");
+    private void operatorApplyInterest() {
+        String id = promptNonEmptyAccountId("Operator — account id to credit interest: ");
+        if (id == null) {
+            return;
         }
+        double amount = readPositiveMoney("Interest amount: ");
+        System.out.println(bank.applyInterest(id, amount).getMessage());
     }
 
     private void viewSpendingSummary() {
@@ -642,7 +566,7 @@ public class MainMenu {
         long fromMs = from.atStartOfDay(zone).toInstant().toEpochMilli();
         long toMs = to.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli() - 1;
 
-        Bank.SpendingSummaryResult result = bank.getSpendingSummary(activeAccountId, fromMs, toMs);
+        SpendingSummaryResult result = bank.getSpendingSummary(activeAccountId, fromMs, toMs);
         if (!result.isSuccess()) {
             System.out.println(result.getMessage());
             return;

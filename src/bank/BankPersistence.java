@@ -113,12 +113,48 @@ public final class BankPersistence {
 
     public static BankSnapshot load(Path path) throws IOException {
         List<String> lines = Files.readAllLines(path, StandardCharsets.UTF_8);
-
         if (lines.isEmpty()) {
             throw new IllegalArgumentException("Missing or invalid header.");
         }
 
-        String header = lines.get(0).trim();
+        FileFormat fmt = parseFileFormat(lines.get(0).trim());
+        int[] cursor = {1};
+        String activeAccountId = readActiveAccountLine(lines, cursor);
+        Bank bank = new Bank();
+        loadAccountBlocks(lines, cursor, fmt, bank);
+
+        if (bank.getAccountCount() == 0) {
+            throw new IllegalArgumentException("No accounts in file.");
+        }
+
+        if (bank.getAccount(activeAccountId) == null) {
+            activeAccountId = bank.getAllAccounts().iterator().next().getAccountNumber();
+        }
+
+        if (fmt.formatV5) {
+            loadRecurringTransferLines(lines, cursor, bank);
+        }
+
+        return new BankSnapshot(bank, activeAccountId);
+    }
+
+    private static final class FileFormat {
+        final boolean formatV1;
+        final boolean formatV2;
+        final boolean formatV3;
+        final boolean formatV4;
+        final boolean formatV5;
+
+        FileFormat(boolean v1, boolean v2, boolean v3, boolean v4, boolean v5) {
+            this.formatV1 = v1;
+            this.formatV2 = v2;
+            this.formatV3 = v3;
+            this.formatV4 = v4;
+            this.formatV5 = v5;
+        }
+    }
+
+    private static FileFormat parseFileFormat(String header) {
         boolean formatV5 = HEADER_V5.equals(header);
         boolean formatV4 = HEADER_V4.equals(header);
         boolean formatV3 = HEADER_V3.equals(header);
@@ -127,20 +163,24 @@ public final class BankPersistence {
         if (!formatV5 && !formatV4 && !formatV3 && !formatV2 && !formatV1) {
             throw new IllegalArgumentException("Missing or invalid header.");
         }
+        return new FileFormat(formatV1, formatV2, formatV3, formatV4, formatV5);
+    }
 
-        int i = 1;
+    private static String readActiveAccountLine(List<String> lines, int[] cursor) {
+        int i = cursor[0];
         if (i >= lines.size()) {
             throw new IllegalArgumentException("Missing ACTIVE line.");
         }
-
         String activeLine = lines.get(i++).trim();
+        cursor[0] = i;
         if (!activeLine.startsWith("ACTIVE|")) {
             throw new IllegalArgumentException("Expected ACTIVE line.");
         }
+        return unescapeField(activeLine.substring("ACTIVE|".length()));
+    }
 
-        String activeAccountId = unescapeField(activeLine.substring("ACTIVE|".length()));
-        Bank bank = new Bank();
-
+    private static void loadAccountBlocks(List<String> lines, int[] cursor, FileFormat fmt, Bank bank) {
+        int i = cursor[0];
         while (i < lines.size()) {
             String line = lines.get(i).trim();
 
@@ -150,23 +190,14 @@ public final class BankPersistence {
             }
 
             if (!line.startsWith("ACC|")) {
-                if (formatV5) {
-                    break; // RT lines follow
+                if (fmt.formatV5) {
+                    break;
                 }
                 throw new IllegalArgumentException("Expected ACC line, got: " + line);
             }
 
             String accPayload = line.substring("ACC|".length());
-            AccLineMeta meta;
-            if (formatV5 || formatV4) {
-                meta = parseAccountLineV4(accPayload);
-            } else if (formatV3) {
-                meta = parseAccountLineV3(accPayload);
-            } else if (formatV2) {
-                meta = parseAccountLineV2(accPayload);
-            } else {
-                meta = parseAccountLineV1(accPayload);
-            }
+            AccLineMeta meta = parseAccountMetaForFormat(accPayload, fmt);
             i++;
 
             List<Transaction> txns = new ArrayList<>();
@@ -195,64 +226,34 @@ public final class BankPersistence {
                             meta.pinLocked,
                             meta.minimumBalanceThreshold));
         }
-
-        if (bank.getAccountCount() == 0) {
-            throw new IllegalArgumentException("No accounts in file.");
-        }
-
-        if (bank.getAccount(activeAccountId) == null) {
-            activeAccountId = bank.getAllAccounts().iterator().next().getAccountNumber();
-        }
-
-        if (formatV5) {
-            while (i < lines.size()) {
-                String line = lines.get(i++).trim();
-                if (line.isEmpty()) {
-                    continue;
-                }
-                if (line.startsWith("RT|")) {
-                    bank.addRecurringTransferForPersistence(parseRtLine(line.substring("RT|".length())));
-                }
-            }
-        }
-
-        return new BankSnapshot(bank, activeAccountId);
+        cursor[0] = i;
     }
 
-    private static final class AccLineMeta {
-        final String accountId;
-        final double balance;
-        final AccountType accountType;
-        final String savingsPeriodKey;
-        final int savingsWithdrawalsThisPeriod;
-        final boolean frozen;
-        final int persistedPin;
-        final int pinFailedAttempts;
-        final boolean pinLocked;
-        final double minimumBalanceThreshold;
-
-        AccLineMeta(
-                String accountId,
-                double balance,
-                AccountType accountType,
-                String savingsPeriodKey,
-                int savingsWithdrawalsThisPeriod,
-                boolean frozen,
-                int persistedPin,
-                int pinFailedAttempts,
-                boolean pinLocked,
-                double minimumBalanceThreshold) {
-            this.accountId = accountId;
-            this.balance = balance;
-            this.accountType = accountType;
-            this.savingsPeriodKey = savingsPeriodKey;
-            this.savingsWithdrawalsThisPeriod = savingsWithdrawalsThisPeriod;
-            this.frozen = frozen;
-            this.persistedPin = persistedPin;
-            this.pinFailedAttempts = pinFailedAttempts;
-            this.pinLocked = pinLocked;
-            this.minimumBalanceThreshold = minimumBalanceThreshold;
+    private static AccLineMeta parseAccountMetaForFormat(String accPayload, FileFormat fmt) {
+        if (fmt.formatV5 || fmt.formatV4) {
+            return parseAccountLineV4(accPayload);
         }
+        if (fmt.formatV3) {
+            return parseAccountLineV3(accPayload);
+        }
+        if (fmt.formatV2) {
+            return parseAccountLineV2(accPayload);
+        }
+        return parseAccountLineV1(accPayload);
+    }
+
+    private static void loadRecurringTransferLines(List<String> lines, int[] cursor, Bank bank) {
+        int i = cursor[0];
+        while (i < lines.size()) {
+            String line = lines.get(i++).trim();
+            if (line.isEmpty()) {
+                continue;
+            }
+            if (line.startsWith("RT|")) {
+                bank.addRecurringTransferForPersistence(parseRtLine(line.substring("RT|".length())));
+            }
+        }
+        cursor[0] = i;
     }
 
     private static AccLineMeta parseAccountLineV4(String accPayload) {

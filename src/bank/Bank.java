@@ -257,195 +257,47 @@ public class Bank {
         return SpendingSummaryResult.success(acc.getSpendingSummary(fromMs, toMs));
     }
 
-    public static final class SpendingSummaryResult {
-        private final boolean success;
-        private final String message;
-        private final SpendingSummary summary;
-
-        private SpendingSummaryResult(boolean success, String message, SpendingSummary summary) {
-            this.success = success;
-            this.message = message;
-            this.summary = summary;
+    public OperatorResult collectFee(String accountNumber, double amount) {
+        if (accountNumber == null || accountNumber.isBlank()) {
+            return OperatorResult.failure("Account id cannot be empty.");
         }
-
-        public static SpendingSummaryResult success(SpendingSummary summary) {
-            return new SpendingSummaryResult(true, null, summary);
+        if (amount <= 0 || Double.isNaN(amount)) {
+            return OperatorResult.failure("Fee amount must be positive.");
         }
-
-        public static SpendingSummaryResult failure(String message) {
-            return new SpendingSummaryResult(false, message, null);
+        Account acc = accounts.get(accountNumber);
+        if (acc == null) {
+            return OperatorResult.failure("Account not found: " + accountNumber);
         }
-
-        public boolean isSuccess() {
-            return success;
+        try {
+            acc.applyAdministratorFee(amount, "Administrator fee");
+        } catch (IllegalStateException e) {
+            return OperatorResult.failure(e.getMessage());
+        } catch (IllegalArgumentException e) {
+            return OperatorResult.failure(e.getMessage());
         }
-
-        public String getMessage() {
-            return message;
-        }
-
-        public SpendingSummary getSummary() {
-            return summary;
-        }
+        return OperatorResult.success(
+                "Collected fee of $" + amount + " from account " + accountNumber + ".");
     }
 
-    public static final class CreateAccountResult {
-        private final boolean success;
-        private final String message;
-
-        private CreateAccountResult(boolean success, String message) {
-            this.success = success;
-            this.message = message;
+    public OperatorResult applyInterest(String accountNumber, double amount) {
+        if (accountNumber == null || accountNumber.isBlank()) {
+            return OperatorResult.failure("Account id cannot be empty.");
         }
-
-        public static CreateAccountResult success(String message) {
-            return new CreateAccountResult(true, message);
+        if (amount <= 0 || Double.isNaN(amount)) {
+            return OperatorResult.failure("Interest amount must be positive.");
         }
-
-        public static CreateAccountResult failure(String message) {
-            return new CreateAccountResult(false, message);
+        Account acc = accounts.get(accountNumber);
+        if (acc == null) {
+            return OperatorResult.failure("Account not found: " + accountNumber);
         }
-
-        public boolean isSuccess() {
-            return success;
+        try {
+            acc.applyAdministratorInterest(amount, "Interest credit");
+        } catch (IllegalStateException e) {
+            return OperatorResult.failure(e.getMessage());
+        } catch (IllegalArgumentException e) {
+            return OperatorResult.failure(e.getMessage());
         }
-
-        public String getMessage() {
-            return message;
-        }
-    }
-
-    public static final class TransferResult {
-        private final boolean success;
-        private final String message;
-
-        private TransferResult(boolean success, String message) {
-            this.success = success;
-            this.message = message;
-        }
-
-        public static TransferResult success(String message) {
-            return new TransferResult(true, message);
-        }
-
-        public static TransferResult failure(String message) {
-            return new TransferResult(false, message);
-        }
-
-        public boolean isSuccess() {
-            return success;
-        }
-
-        public String getMessage() {
-            return message;
-        }
-    }
-
-    public static final class CloseAccountResult {
-        private final boolean success;
-        private final String message;
-
-        private CloseAccountResult(boolean success, String message) {
-            this.success = success;
-            this.message = message;
-        }
-
-        public static CloseAccountResult success() {
-            return new CloseAccountResult(true, "Account closed.");
-        }
-
-        public static CloseAccountResult failure(String message) {
-            return new CloseAccountResult(false, message);
-        }
-
-        public boolean isSuccess() {
-            return success;
-        }
-
-        public String getMessage() {
-            return message;
-        }
-    }
-
-    public static final class OperatorResult {
-        private final boolean success;
-        private final String message;
-
-        private OperatorResult(boolean success, String message) {
-            this.success = success;
-            this.message = message;
-        }
-
-        public static OperatorResult success(String message) {
-            return new OperatorResult(true, message);
-        }
-
-        public static OperatorResult failure(String message) {
-            return new OperatorResult(false, message);
-        }
-
-        public boolean isSuccess() {
-            return success;
-        }
-
-        public String getMessage() {
-            return message;
-        }
-    }
-
-    public static final class AddRecurringTransferResult {
-        private final boolean success;
-        private final String message;
-        private final String recurringTransferId;
-
-        private AddRecurringTransferResult(boolean success, String message, String recurringTransferId) {
-            this.success = success;
-            this.message = message;
-            this.recurringTransferId = recurringTransferId;
-        }
-
-        public static AddRecurringTransferResult success(String id) {
-            return new AddRecurringTransferResult(true, "Recurring transfer " + id + " created.", id);
-        }
-
-        public static AddRecurringTransferResult failure(String message) {
-            return new AddRecurringTransferResult(false, message, null);
-        }
-
-        public boolean isSuccess() {
-            return success;
-        }
-
-        public String getMessage() {
-            return message;
-        }
-
-        public String getRecurringTransferId() {
-            return recurringTransferId;
-        }
-    }
-
-    public static final class ProcessedRecurringTransferResult {
-        private final String recurringTransferId;
-        private final boolean success;
-        private final String message;
-
-        public ProcessedRecurringTransferResult(String recurringTransferId, boolean success, String message) {
-            this.recurringTransferId = recurringTransferId;
-            this.success = success;
-            this.message = message;
-        }
-
-        public String getRecurringTransferId() {
-            return recurringTransferId;
-        }
-
-        public boolean isSuccess() {
-            return success;
-        }
-
-        public String getMessage() {
-            return message;
-        }
+        return OperatorResult.success(
+                "Applied interest of $" + amount + " to account " + accountNumber + ".");
     }
 }

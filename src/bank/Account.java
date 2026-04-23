@@ -176,11 +176,13 @@ public class Account {
             switch (t.getType()) {
                 case DEPOSIT:
                 case TRANSFER_IN:
+                case INTEREST:
                     totalDeposited += t.getAmount();
                     depositCount++;
                     break;
                 case WITHDRAW:
                 case TRANSFER_OUT:
+                case FEE:
                     totalWithdrawn += t.getAmount();
                     withdrawalCount++;
                     break;
@@ -201,6 +203,17 @@ public class Account {
             }
         }
 
+        return Collections.unmodifiableList(out);
+    }
+
+    /** Transactions with {@code whenMs} in [{@code fromMs}, {@code toMs}], inclusive. */
+    public List<Transaction> getTransactionsBetween(long fromMs, long toMs) {
+        List<Transaction> out = new ArrayList<>();
+        for (Transaction t : transactionHistory) {
+            if (t.getWhenMs() >= fromMs && t.getWhenMs() <= toMs) {
+                out.add(t);
+            }
+        }
         return Collections.unmodifiableList(out);
     }
 
@@ -312,6 +325,37 @@ public class Account {
                         Transaction.Type.TRANSFER_OUT, amount, System.currentTimeMillis(), "Transfer out"));
         recordSavingsOutgoingWithdrawal();
         maybeWarnMinimumBalance();
+    }
+
+    /**
+     * Bank operator: deducts a fee from this account. Does not count toward the savings monthly
+     * withdrawal limit.
+     */
+    public void applyAdministratorFee(double amount, String detail) {
+        ensureNotFrozen();
+        if (amount <= 0) {
+            throw new IllegalArgumentException("Fee amount must be positive");
+        }
+        if (balance + EPS < amount) {
+            throw new IllegalStateException("Insufficient funds");
+        }
+        balance -= amount;
+        String d = detail != null ? detail : "";
+        transactionHistory.add(
+                new Transaction(Transaction.Type.FEE, amount, System.currentTimeMillis(), d));
+        maybeWarnMinimumBalance();
+    }
+
+    /** Bank operator: credits interest to this account. */
+    public void applyAdministratorInterest(double amount, String detail) {
+        ensureNotFrozen();
+        if (amount <= 0) {
+            throw new IllegalArgumentException("Interest amount must be positive");
+        }
+        balance += amount;
+        String d = detail != null ? detail : "";
+        transactionHistory.add(
+                new Transaction(Transaction.Type.INTEREST, amount, System.currentTimeMillis(), d));
     }
 
     private void syncSavingsPeriod() {
